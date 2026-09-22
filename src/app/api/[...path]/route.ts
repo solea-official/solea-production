@@ -174,7 +174,7 @@ async function handler(
         ).rows[0];
         requireCondition(r, 400, "INVALID_RESET");
         await db.query("UPDATE admin_users SET password_hash=$1 WHERE id=$2", [
-          await bcrypt.hash(d.password, 12),
+          await bcrypt.hash(d.password, 14),
           r.admin_id,
         ]);
         await db.query(

@@ -485,7 +485,7 @@ export async function adminApi(
         .parse(await body());
       const r = await pool.query(
         "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,$3) RETURNING id",
-        [d.email, await bcrypt.hash(d.password, 12), d.role],
+        [d.email, await bcrypt.hash(d.password, 14), d.role],
       );
       await audit(pool, user.id, "admin.create", "admin_users", r.rows[0].id);
       return { id: r.rows[0].id };

@@ -102,7 +102,7 @@ export async function login(req: NextRequest, email: string, password: string) {
     email,
   ]);
   const u = r.rows[0];
-  const dummy = "$2b$12$9hLKcAjJOqWeUkXZbvEI8.l.MRbYDyFD.pDgSoZPdcJhCoDXnG0G6";
+  const dummy = "$2b$14$fmhjCcqKE15HfuHsBG876ukNgE6R8cs5i3dxFN3YG8MwlI2LzydEm";
   const valid = await bcrypt.compare(password, u?.password_hash || dummy);
   if (!valid || !u?.active || u.mfa_required) {
     await audit(pool, null, "login.failed", "auth", null, {
