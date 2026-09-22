@@ -1,0 +1,89 @@
+services:
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: solea
+      POSTGRES_USER: solea_migrator
+      POSTGRES_PASSWORD: ${DB_MIGRATION_PASSWORD:?Set DB_MIGRATION_PASSWORD}
+      APP_DB_PASSWORD: ${DB_APP_PASSWORD:?Set DB_APP_PASSWORD}
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./deploy/init-db.sh:/docker-entrypoint-initdb.d/10-app-user.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U solea_migrator -d solea']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [private]
+
+  migrate:
+    build: .
+    image: solea-app:local
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://solea_migrator:${DB_MIGRATION_PASSWORD}@db:5432/solea
+    command: [sh, -c, 'npm run db:migrate && npm run db:seed && node --import tsx scripts/grants.ts']
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [private]
+    restart: 'no'
+
+  app:
+    image: solea-app:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: 'true'
+      DATABASE_URL: postgresql://solea_app:${DB_APP_PASSWORD}@db:5432/solea
+      MEDIA_DIR: /app/var/media
+    volumes: [media:/app/var/media]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks: [private, egress]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  worker:
+    image: solea-app:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://solea_app:${DB_APP_PASSWORD}@db:5432/solea
+    command: [npm, run, worker]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    networks: [private, egress]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app: {condition: service_healthy}
+    networks: [egress, private]
+
+volumes:
+  database:
+  media:
+  caddy_data:
+  caddy_config:
+networks:
+  private: {internal: true}
+  egress:

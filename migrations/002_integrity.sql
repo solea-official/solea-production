@@ -1,0 +1,15 @@
+CREATE INDEX ON addresses(customer_id);
+CREATE INDEX ON orders(customer_id);
+CREATE INDEX ON orders(address_id);
+CREATE INDEX ON orders(coupon_id);
+CREATE INDEX ON order_items(product_id);
+CREATE INDEX ON sessions(admin_id);
+CREATE INDEX ON password_resets(admin_id);
+CREATE INDEX ON outbox(order_id);
+ALTER TABLE payments ADD CONSTRAINT payment_positive_amount CHECK(amount>0);
+ALTER TABLE payments ADD CONSTRAINT payment_currency CHECK(currency='EGP');
+ALTER TABLE orders ADD CONSTRAINT order_currency CHECK(currency='EGP');
+ALTER TABLE orders ADD CONSTRAINT order_discount_limit CHECK(discount<subtotal);
+ALTER TABLE orders ADD CONSTRAINT order_locale CHECK(locale IN ('en','ar'));
+ALTER TABLE coupons ADD CONSTRAINT coupon_dates CHECK(starts_at IS NULL OR ends_at IS NULL OR ends_at>starts_at);
+ALTER TABLE shipments ADD CONSTRAINT shipment_status CHECK(status IN ('pending','shipped','delivered'));

@@ -1,0 +1,410 @@
+import { z } from "zod";
+import { pool, transaction, DB, audit } from "./db";
+import { checkoutSchema } from "./validation";
+import { requireCondition } from "./config";
+import { Session, hash, sign } from "./security";
+import { randomUUID } from "node:crypto";
+import { manualPaymentSettings } from "./manual-payments";
+
+type ShippingZone = {
+  governorate: string;
+  zone: string;
+  fee: number;
+  active: boolean;
+};
+
+function shippingFee(settings: Record<string, unknown>, governorate: string, net: number) {
+  const zones = (settings.shipping_zones || []) as ShippingZone[];
+  const rate = zones.find((r) => r.active && r.governorate === governorate);
+  requireCondition(rate && Number.isInteger(rate.fee) && rate.fee >= 0, 409, "DELIVERY_UNAVAILABLE");
+  const threshold = settings.free_shipping_threshold;
+  return typeof threshold === "number" && threshold > 0 && net >= threshold
+    ? 0
+    : rate.fee;
+}
+export async function getCart(s: Session) {
+  const c = await pool.query(
+    "INSERT INTO carts(session_id) VALUES($1) ON CONFLICT(session_id) DO UPDATE SET session_id=EXCLUDED.session_id RETURNING id",
+    [s.id],
+  );
+  const r = await pool.query(
+    `SELECT p.id,p.slug,p.name_en,p.name_ar,p.volume,p.price,p.status,i.stock,ci.quantity,(SELECT url FROM product_images WHERE product_id=p.id ORDER BY position LIMIT 1) image FROM cart_items ci JOIN products p ON p.id=ci.product_id JOIN inventory i ON i.product_id=p.id WHERE ci.cart_id=$1 ORDER BY p.id`,
+    [c.rows[0].id],
+  );
+  return {
+    id: c.rows[0].id,
+    items: r.rows,
+    subtotal: r.rows.reduce((n, x) => n + (x.price || 0) * x.quantity, 0),
+    valid:
+      r.rows.length > 0 &&
+      r.rows.every(
+        (x) => x.status === "active" && x.price > 0 && x.stock >= x.quantity,
+      ),
+  };
+}
+export async function setCartItem(
+  s: Session,
+  productId: string,
+  quantity: number,
+  increment = false,
+) {
+  return transaction(async (db) => {
+    const c = await db.query(
+      "INSERT INTO carts(session_id) VALUES($1) ON CONFLICT(session_id) DO UPDATE SET updated_at=now() RETURNING id",
+      [s.id],
+    );
+    const cartId = c.rows[0].id;
+    if (increment) {
+      const existing = (
+        await db.query(
+          "SELECT quantity FROM cart_items WHERE cart_id=$1 AND product_id=$2",
+          [cartId, productId],
+        )
+      ).rows[0];
+      quantity += existing?.quantity || 0;
+      requireCondition(quantity <= 99, 400, "QUANTITY_LIMIT");
+    }
+    if (quantity === 0) {
+      await db.query(
+        "DELETE FROM cart_items WHERE cart_id=$1 AND product_id=$2",
+        [cartId, productId],
+      );
+      return;
+    }
+    const p = (
+      await db.query(
+        "SELECT p.price,p.status,i.stock FROM products p JOIN inventory i ON i.product_id=p.id WHERE p.id=$1",
+        [productId],
+      )
+    ).rows[0];
+    requireCondition(p && p.status === "active", 404, "PRODUCT_NOT_FOUND");
+    requireCondition(p.price > 0, 409, "PRICE_UNAVAILABLE");
+    requireCondition(p.stock >= quantity, 409, "INSUFFICIENT_STOCK");
+    const count = await db.query(
+      "SELECT count(*)::int count FROM cart_items WHERE cart_id=$1",
+      [cartId],
+    );
+    requireCondition(
+      count.rows[0].count < 50 ||
+        !!(
+          await db.query(
+            "SELECT 1 FROM cart_items WHERE cart_id=$1 AND product_id=$2",
+            [cartId, productId],
+          )
+        ).rowCount,
+      409,
+      "CART_LIMIT",
+    );
+    await db.query(
+      "INSERT INTO cart_items(cart_id,product_id,quantity) VALUES($1,$2,$3) ON CONFLICT(cart_id,product_id) DO UPDATE SET quantity=EXCLUDED.quantity",
+      [cartId, productId, quantity],
+    );
+  });
+}
+export function discountAmount(subtotal: number, type: string, value: number) {
+  requireCondition(
+    Number.isSafeInteger(subtotal) &&
+      subtotal > 0 &&
+      Number.isSafeInteger(value) &&
+      value > 0,
+    400,
+    "INVALID_DISCOUNT",
+  );
+  return Math.min(
+    subtotal - 1,
+    type === "percent" ? Math.floor((subtotal * value) / 10000) : value,
+  );
+}
+export async function enqueue(
+  db: DB,
+  kind: string,
+  orderId: string | null,
+  key: string,
+  payload: unknown = {},
+) {
+  await db.query(
+    "INSERT INTO outbox(kind,order_id,dedupe_key,payload) VALUES($1,$2,$3,$4) ON CONFLICT(dedupe_key) DO NOTHING",
+    [kind, orderId, key, JSON.stringify(payload)],
+  );
+}
+export async function checkout(
+  s: Session,
+  data: z.infer<typeof checkoutSchema>,
+) {
+  return transaction(async (db) => {
+    await db.query("SELECT id FROM sessions WHERE id=$1 FOR UPDATE", [s.id]);
+    const requestHash = hash(JSON.stringify(data));
+    const prior = (
+      await db.query(
+        "SELECT * FROM orders WHERE session_id=$1 AND idempotency_key=$2",
+        [s.id, data.idempotencyKey],
+      )
+    ).rows[0];
+    if (prior) {
+      requireCondition(
+        prior.request_hash === requestHash,
+        409,
+        "IDEMPOTENCY_CONFLICT",
+      );
+      return {
+        id: prior.id,
+        reference: prior.reference,
+        trackingToken: sign("tracking:" + prior.id),
+        reused: true,
+      };
+    }
+    const settings = (
+      await db.query("SELECT * FROM store_settings WHERE id=1 FOR SHARE")
+    ).rows[0];
+    requireCondition(settings.enabled, 409, "STORE_NOT_READY");
+    const legal = await db.query(
+      "SELECT count(*)::int n FROM content WHERE key IN ('terms','privacy','returns','shipping-policy') AND published=true",
+    );
+    requireCondition(legal.rows[0].n === 4, 409, "POLICIES_NOT_READY");
+    if (data.payment === "cod")
+      requireCondition(settings.cod_enabled, 409, "PAYMENT_UNAVAILABLE");
+    else {
+      const manual = manualPaymentSettings();
+      requireCondition(
+        data.payment === "instapay"
+          ? manual.instapay.enabled
+          : manual.vodafoneCash.enabled,
+        503,
+        "PAYMENT_UNAVAILABLE",
+      );
+    }
+    const cart = (
+      await db.query("SELECT id FROM carts WHERE session_id=$1 FOR UPDATE", [
+        s.id,
+      ])
+    ).rows[0];
+    requireCondition(cart, 409, "EMPTY_CART");
+    const items = (
+      await db.query(
+        "SELECT p.*,i.stock,ci.quantity FROM cart_items ci JOIN products p ON p.id=ci.product_id JOIN inventory i ON i.product_id=p.id WHERE ci.cart_id=$1 ORDER BY p.id FOR UPDATE OF i,p,ci",
+        [cart.id],
+      )
+    ).rows;
+    requireCondition(items.length, 409, "EMPTY_CART");
+    let subtotal = 0;
+    for (const item of items) {
+      requireCondition(
+        item.status === "active" && item.price > 0,
+        409,
+        "PRICE_UNAVAILABLE",
+      );
+      requireCondition(
+        item.quantity >= 1 &&
+          item.quantity <= 99 &&
+          item.stock >= item.quantity,
+        409,
+        "INSUFFICIENT_STOCK",
+      );
+      subtotal += item.price * item.quantity;
+    }
+    requireCondition(
+      Number.isSafeInteger(subtotal) && subtotal <= 100000000,
+      400,
+      "ORDER_LIMIT",
+    );
+    let couponId = null,
+      discount = 0;
+    if (data.coupon) {
+      const c = (
+        await db.query("SELECT * FROM coupons WHERE code=$1 FOR UPDATE", [
+          data.coupon.toUpperCase(),
+        ])
+      ).rows[0];
+      requireCondition(
+        c &&
+          c.active &&
+          c.used < c.usage_limit &&
+          (!c.starts_at || c.starts_at <= new Date()) &&
+          (!c.ends_at || c.ends_at >= new Date()) &&
+          subtotal >= c.minimum,
+        400,
+        "INVALID_COUPON",
+      );
+      discount = discountAmount(subtotal, c.type, c.value);
+      couponId = c.id;
+      await db.query("UPDATE coupons SET used=used+1 WHERE id=$1", [c.id]);
+    }
+    const fee = shippingFee(settings, data.governorate, subtotal - discount);
+    const customer = (
+      await db.query(
+        "INSERT INTO customers(name,email,mobile) VALUES($1,$2,$3) RETURNING id",
+        [data.fullName, data.email, data.mobile],
+      )
+    ).rows[0];
+    const address = (
+      await db.query(
+        "INSERT INTO addresses(customer_id,governorate,city,street,building,floor,apartment) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+        [
+          customer.id,
+          data.governorate,
+          data.city,
+          data.street,
+          data.building,
+          data.floor,
+          data.apartment,
+        ],
+      )
+    ).rows[0];
+    const id = randomUUID(),
+      reference =
+        "SOL-" + randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase(),
+      trackingToken = sign("tracking:" + id);
+    await db.query(
+      `INSERT INTO orders(id,reference,session_id,customer_id,address_id,tracking_hash,idempotency_key,request_hash,status,payment_method,subtotal,discount,shipping,total,coupon_id,notes,locale,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,$12,$13,$14,$15,$16,NULL)`,
+      [
+        id,
+        reference,
+        s.id,
+        customer.id,
+        address.id,
+        hash(trackingToken),
+        data.idempotencyKey,
+        requestHash,
+        data.payment,
+        subtotal,
+        discount,
+        fee,
+        subtotal - discount + fee,
+        couponId,
+        data.notes,
+        data.locale,
+      ],
+    );
+    for (const item of items) {
+      await db.query(
+        "INSERT INTO order_items(order_id,product_id,sku,name_en,name_ar,quantity,unit_price) VALUES($1,$2,$3,$4,$5,$6,$7)",
+        [
+          id,
+          item.id,
+          item.sku,
+          item.name_en,
+          item.name_ar,
+          item.quantity,
+          item.price,
+        ],
+      );
+      await db.query(
+        "UPDATE inventory SET stock=stock-$1,updated_at=now() WHERE product_id=$2",
+        [item.quantity, item.id],
+      );
+    }
+    await db.query(
+      "INSERT INTO payments(order_id,amount,status,transfer_reference) VALUES($1,$2,$3,$4)",
+      [
+        id,
+        subtotal - discount + fee,
+        data.payment === "cod" ? "cod_pending" : "awaiting_confirmation",
+        data.payment === "cod" ? null : data.transferReference || null,
+      ],
+    );
+    await db.query("INSERT INTO shipments(order_id) VALUES($1)", [id]);
+    await db.query("DELETE FROM cart_items WHERE cart_id=$1", [cart.id]);
+    if (process.env.EMAIL_ENABLED === "true")
+      await enqueue(db, "order-email", id, "order-email:" + id);
+    await audit(db, null, "order.created", "orders", id, {
+      payment: data.payment,
+    });
+    return { id, reference, trackingToken, reused: false };
+  });
+}
+export async function releaseStock(
+  db: DB,
+  order: { id: string; stock_released: boolean },
+) {
+  if (order.stock_released) return;
+  const items = (
+    await db.query(
+      "SELECT * FROM order_items WHERE order_id=$1 ORDER BY product_id",
+      [order.id],
+    )
+  ).rows;
+  for (const item of items)
+    await db.query("UPDATE inventory SET stock=stock+$1 WHERE product_id=$2", [
+      item.quantity,
+      item.product_id,
+    ]);
+  await db.query("UPDATE orders SET stock_released=true WHERE id=$1", [
+    order.id,
+  ]);
+}
+export async function changeOrder(actor: string, id: string, status: string) {
+  return transaction(async (db) => {
+    const o = (
+      await db.query(
+        "SELECT o.*,p.status payment_status FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=$1 FOR UPDATE OF o,p",
+        [id],
+      )
+    ).rows[0];
+    requireCondition(o, 404, "ORDER_NOT_FOUND");
+    const allowed: Record<string, string[]> = {
+      pending: o.payment_method === "cod" ? ["processing", "cancelled"] : ["cancelled"],
+      paid: ["processing"],
+      processing:
+        o.payment_status === "paid" ? ["shipped"] : ["shipped", "cancelled"],
+      shipped: ["delivered"],
+      delivered: [],
+      cancelled: [],
+      refunded: [],
+    };
+    requireCondition(
+      allowed[o.status]?.includes(status),
+      409,
+      "INVALID_TRANSITION",
+    );
+    if (status === "cancelled") {
+      await releaseStock(db, o);
+      if (["cod_pending", "awaiting_confirmation"].includes(o.payment_status))
+        await db.query(
+          "UPDATE payments SET status='cancelled',updated_at=now() WHERE order_id=$1",
+          [id],
+        );
+    }
+    await db.query("UPDATE orders SET status=$1,updated_at=now() WHERE id=$2", [
+      status,
+      id,
+    ]);
+    await audit(db, actor, "order.status", "orders", id, {
+      from: o.status,
+      to: status,
+    });
+    if (process.env.EMAIL_ENABLED === "true")
+      await enqueue(db, "status-email", id, "status-email:" + id + ":" + status);
+  });
+}
+export async function quote(s: Session, governorate: string, code: string) {
+  const cart = await getCart(s);
+  requireCondition(cart.valid, 409, "CART_UNAVAILABLE");
+  const settings = (await pool.query("SELECT * FROM store_settings WHERE id=1"))
+    .rows[0];
+  let discount = 0;
+  if (code) {
+    const c = (
+      await pool.query("SELECT * FROM coupons WHERE code=$1", [
+        code.toUpperCase(),
+      ])
+    ).rows[0];
+    requireCondition(
+      c &&
+        c.active &&
+        c.used < c.usage_limit &&
+        (!c.starts_at || c.starts_at <= new Date()) &&
+        (!c.ends_at || c.ends_at >= new Date()) &&
+        cart.subtotal >= c.minimum,
+      400,
+      "INVALID_COUPON",
+    );
+    discount = discountAmount(cart.subtotal, c.type, c.value);
+  }
+  const fee = shippingFee(settings, governorate, cart.subtotal - discount);
+  return {
+    subtotal: cart.subtotal,
+    discount,
+    shipping: fee,
+    total: cart.subtotal - discount + fee,
+  };
+}

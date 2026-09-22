@@ -1,0 +1,62 @@
+export const formula = [
+  ["Aqua", "37.93", "Solvent", "مذيب"],
+  [
+    "Decyl Glucoside",
+    "15",
+    "Surfactant / Cleansing",
+    "مادة خافضة للتوتر السطحي / منظّف",
+  ],
+  ["Aloe Barbadensis Leaf Extract", "10", "Skin Conditioning", "تلطيف البشرة"],
+  [
+    "Sodium Cocoyl Isethionate",
+    "5",
+    "Surfactant / Cleansing",
+    "مادة خافضة للتوتر السطحي / منظّف",
+  ],
+  [
+    "Cocamidopropyl Betaine",
+    "10",
+    "Surfactant / Cleansing",
+    "مادة خافضة للتوتر السطحي / منظّف",
+  ],
+  [
+    "Lauryl Glucoside",
+    "3",
+    "Surfactant / Cleansing",
+    "مادة خافضة للتوتر السطحي / منظّف",
+  ],
+  ["Glycerin", "5", "Humectant", "مادة جاذبة للرطوبة"],
+  [
+    "Citrus Aurantium Dulcis Fruit Extract",
+    "5",
+    "Skin Conditioning",
+    "تلطيف البشرة",
+  ],
+  [
+    "Melissa Officinalis Leaf Extract",
+    "3",
+    "Skin Conditioning",
+    "تلطيف البشرة",
+  ],
+  ["Rosa Damascena Flower Water", "3", "Skin Conditioning", "تلطيف البشرة"],
+  ["Myrtus Communis Leaf Extract", "1", "Skin Conditioning", "تلطيف البشرة"],
+  [
+    "Thymus Vulgaris Flower/Leaf Extract",
+    "1",
+    "Antimicrobial",
+    "مضاد للميكروبات في التركيبة",
+  ],
+  ["Phenoxyethanol", "0.5", "Preservative", "مادة حافظة"],
+  ["Ethylhexylglycerin", "0.2", "Skin Conditioning", "تلطيف البشرة"],
+  ["Polyquaternium-10", "0.3", "Antistatic", "مضاد للكهرباء الساكنة"],
+  ["Citric Acid", "0.07", "Buffering", "تنظيم درجة الحموضة"],
+];
+export const botanicals = [
+  ["Aloe vera", "الألوفيرا", 2, "aloe"],
+  ["Orange", "البرتقال", 7, "orange"],
+  ["Melissa", "المليسة", 8, "melissa"],
+  ["Rose", "الورد", 9, "rose"],
+  ["Myrtle", "الآس", 10, "myrtle"],
+  ["Thyme", "الزعتر", 11, "thyme"],
+  ["Glycerin", "الجلسرين", 6, "drop"],
+] as const;

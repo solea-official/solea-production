@@ -1,0 +1,16 @@
+export const publicPages: Record<string, string> = {
+  "": "Home",
+  products: "Products",
+  ingredients: "Ingredients",
+  about: "About SOLÉA",
+  cart: "Shopping bag",
+  checkout: "Checkout",
+  "order-success": "Order confirmation",
+  "track-order": "Track order",
+  contact: "Contact",
+  faq: "FAQ",
+  "shipping-policy": "Shipping policy",
+  returns: "Returns",
+  privacy: "Privacy",
+  terms: "Terms",
+};
