@@ -486,7 +486,7 @@ function DataTable({
                 <td key={c}>
                   {["status", "payment_status"].includes(c) ? (
                     <Status value={str(r[c])} />
-                  ) : ["price", "total"].includes(c) ? (
+                  ) : ["price", "total", "unit_price"].includes(c) ? (
                     r[c] == null ? (
                       "—"
                     ) : (
