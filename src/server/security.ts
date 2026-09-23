@@ -58,12 +58,19 @@ export function setSession(res: NextResponse, s: Session) {
 }
 export function csrf(req: NextRequest, s: Session | null) {
   requireCondition(s, 401, "SESSION_REQUIRED");
+
+  const origin = req.headers.get("origin");
+  const appOrigin = new URL(config().APP_URL).origin;
+  const requestOrigin = req.nextUrl.origin;
+
   requireCondition(
-    req.headers.get("origin") === new URL(config().APP_URL).origin,
+    !!origin && (origin === appOrigin || origin === requestOrigin),
     403,
     "CSRF_REJECTED",
   );
+
   const raw = req.headers.get("x-csrf-token") || "";
+
   requireCondition(
     raw.length === 64 && hash(raw) === s.csrf_hash,
     403,
