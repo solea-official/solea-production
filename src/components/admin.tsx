@@ -387,10 +387,23 @@ export function Admin({
   );
 }
 function Dashboard({ data }: { data: Row }) {
-  const { t } = useStore();
+  const { t, locale } = useStore();
+  const metrics = (data.metrics || {}) as Row;
   return (
     <>
       <div className="metric-grid">
+        {[
+          ["Total orders", "إجمالي الطلبات", metrics.total_orders],
+          ["Units ordered", "الوحدات المطلوبة", metrics.units_ordered],
+          ["Pending orders", "طلبات قيد الانتظار", metrics.pending_orders],
+          ["Delivered orders", "طلبات تم توصيلها", metrics.delivered_orders],
+          ["Cancelled orders", "طلبات ملغاة", metrics.cancelled_orders],
+          ["Pending payments", "مدفوعات بانتظار التأكيد", metrics.pending_payments],
+        ].map(([en, ar, value]) => <div className="panel" key={String(en)}><p>{t(String(en), String(ar))}</p><strong>{str(value || 0)}</strong></div>)}
+        <div className="panel">
+          <p>{t("Confirmed revenue", "الإيراد المؤكد")}</p>
+          <strong>{currency(Number(metrics.revenue || 0), locale)}</strong>
+        </div>
         <div className="panel">
           <p>{t("Active products", "المنتجات النشطة")}</p>
           <strong>{str(data.products)}</strong>
@@ -405,7 +418,7 @@ function Dashboard({ data }: { data: Row }) {
           <strong>{str(data.jobs)}</strong>
         </div>
       </div>
-      <DataTable rows={data.orders as Row[]} columns={["status", "count"]} />
+      <DataTable rows={data.orders as Row[]} columns={["status", "order_count", "units"]} />
       <p className="notice">
         {t(
           "Before accepting orders: configure product prices and stock, delivery rates, approved policies, payment and email services.",
@@ -436,6 +449,8 @@ const labels: Record<string, string> = {
   entity_id: "معرّف الكيان",
   metadata: "التفاصيل",
   count: "العدد",
+  order_count: "عدد الطلبات",
+  units: "الوحدات",
   code: "الرمز",
   type: "النوع",
   value: "القيمة",
@@ -486,7 +501,7 @@ function DataTable({
                 <td key={c}>
                   {["status", "payment_status"].includes(c) ? (
                     <Status value={str(r[c])} />
-                  ) : ["price", "total", "unit_price"].includes(c) ? (
+                  ) : ["price", "unit_price", "subtotal", "shipping", "discount", "total", "revenue"].includes(c) ? (
                     r[c] == null ? (
                       "—"
                     ) : (

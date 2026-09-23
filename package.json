@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "test:targeted": "node --import tsx --test --test-concurrency=1 tests/vercel-supabase-manual.test.ts",
+    "test:accounts": "node --import tsx --test --test-concurrency=1 tests/customer-accounts.test.ts",
+    "test:phase": "node --import tsx --test --test-concurrency=1 tests/customer-accounts.test.ts tests/vercel-supabase-manual.test.ts",
     "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env --import tsx scripts/seed.ts",
     "admin:create": "node --env-file-if-exists=.env --import tsx scripts/admin.ts",

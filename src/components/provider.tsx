@@ -4,7 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Locale, StoreData } from "@/lib/types";
 import { Brand, Icon } from "./brand";
-import { analytics } from "@/lib/api";
+import { analytics, api } from "@/lib/api";
 const Context = createContext({
   locale: "en" as Locale,
   t: (en: string, ar: string) => en || ar,
@@ -25,7 +25,8 @@ export function Shell({
 }) {
   const [locale, setLocale] = useState(initial),
     [open, setOpen] = useState(false),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [customer, setCustomer] = useState(false);
   const path = usePathname(),
     router = useRouter();
   const t = (en: string, ar: string) => (locale === "ar" ? ar : en);
@@ -36,6 +37,28 @@ export function Shell({
   }, [message]);
   useEffect(() => {
     setOpen(false);
+    api("account/me").then(() => setCustomer(true)).catch(() => setCustomer(false));
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const nodes = Array.from(
+      document.querySelectorAll<HTMLElement>("main > section, main .page-title, .product-detail, .footer-top, .footer-grid"),
+    );
+    if (reduced) {
+      nodes.forEach((node) => node.classList.add("is-visible"));
+      return;
+    }
+    document.body.classList.add("motion-ready");
+    nodes.forEach((node) => node.classList.add("reveal"));
+    const observer = new IntersectionObserver(
+      (entries) => entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      }),
+      { threshold: 0.08, rootMargin: "0px 0px -5%" },
+    );
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
   }, [path]);
   const links = [
     ["/", "Home", "الرئيسية"],
@@ -89,6 +112,13 @@ export function Shell({
             >
               {t("العربية", "English")}
             </button>
+            <Link
+              className="account-link"
+              href={customer ? "/account" : "/account/login"}
+            >
+              <Icon name="user" />
+              <span>{customer ? t("My Account", "حسابي") : t("Sign In", "دخول")}</span>
+            </Link>
             <Link
               className="icon-button"
               href="/cart"
@@ -198,6 +228,38 @@ export function ErrorMessage({ code }: { code: string }) {
     INVALID_LOGIN: [
       "The login details are incorrect.",
       "بيانات الدخول غير صحيحة.",
+    ],
+    INVALID_CUSTOMER_LOGIN: [
+      "Invalid email or password.",
+      "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
+    ],
+    CUSTOMER_LOGIN_REQUIRED: [
+      "Please sign in to continue.",
+      "يرجى تسجيل الدخول للمتابعة.",
+    ],
+    PASSWORD_MISMATCH: [
+      "The passwords do not match.",
+      "كلمتا المرور غير متطابقتين.",
+    ],
+    CURRENT_PASSWORD_INVALID: [
+      "The current password is incorrect.",
+      "كلمة المرور الحالية غير صحيحة.",
+    ],
+    CLAIM_INVALID: [
+      "The order ID or private tracking key is incorrect.",
+      "رقم الطلب أو مفتاح التتبّع الخاص غير صحيح.",
+    ],
+    ORDER_ALREADY_CLAIMED: [
+      "This order is already in your account.",
+      "هذا الطلب مضاف بالفعل إلى حسابك.",
+    ],
+    ORDER_CLAIM_UNAVAILABLE: [
+      "This order cannot be added to this account.",
+      "لا يمكن إضافة هذا الطلب إلى هذا الحساب.",
+    ],
+    ADDRESS_NOT_FOUND: [
+      "The address could not be found.",
+      "لم يتم العثور على العنوان.",
     ],
     RATE_LIMITED: [
       "Too many attempts. Please try again later.",

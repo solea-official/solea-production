@@ -17,6 +17,7 @@ export const sessionCookie = () =>
 export type Session = {
   id: string;
   admin_id: string | null;
+  customer_account_id: string | null;
   csrf_hash: string;
   raw: string;
 };
@@ -24,16 +25,25 @@ export async function session(req: NextRequest): Promise<Session | null> {
   const raw = req.cookies.get(sessionCookie())?.value;
   if (!raw || !/^[a-f0-9]{64}$/.test(raw)) return null;
   const r = await pool.query(
-    "SELECT id,admin_id,csrf_hash FROM sessions WHERE token_hash=$1 AND expires_at>now()",
+    "SELECT id,admin_id,customer_account_id,csrf_hash FROM sessions WHERE token_hash=$1 AND expires_at>now()",
     [hash(raw)],
   );
   return r.rows[0] ? { ...r.rows[0], raw } : null;
 }
-export async function newSession(adminId: string | null = null) {
+export async function newSession(
+  adminId: string | null = null,
+  customerAccountId: string | null = null,
+) {
   const raw = token();
   const r = await pool.query(
-    "INSERT INTO sessions(token_hash,admin_id,csrf_hash,expires_at) VALUES($1,$2,$3,now()+$4::interval) RETURNING id,admin_id,csrf_hash",
-    [hash(raw), adminId, hash(sign(raw)), adminId ? "2 hours" : "14 days"],
+    "INSERT INTO sessions(token_hash,admin_id,customer_account_id,csrf_hash,expires_at) VALUES($1,$2,$3,$4,now()+$5::interval) RETURNING id,admin_id,customer_account_id,csrf_hash",
+    [
+      hash(raw),
+      adminId,
+      customerAccountId,
+      hash(sign(raw)),
+      adminId ? "2 hours" : customerAccountId ? "30 days" : "14 days",
+    ],
   );
   return { ...r.rows[0], raw } as Session;
 }
@@ -43,17 +53,24 @@ export function setSession(res: NextResponse, s: Session) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: s.admin_id ? 7200 : 1209600,
+    maxAge: s.admin_id ? 7200 : s.customer_account_id ? 2592000 : 1209600,
   });
 }
 export function csrf(req: NextRequest, s: Session | null) {
   requireCondition(s, 401, "SESSION_REQUIRED");
+
+  const origin = req.headers.get("origin");
+  const appOrigin = new URL(config().APP_URL).origin;
+  const requestOrigin = req.nextUrl.origin;
+
   requireCondition(
-    req.headers.get("origin") === new URL(config().APP_URL).origin,
+    !!origin && (origin === appOrigin || origin === requestOrigin),
     403,
     "CSRF_REJECTED",
   );
+
   const raw = req.headers.get("x-csrf-token") || "";
+
   requireCondition(
     raw.length === 64 && hash(raw) === s.csrf_hash,
     403,
@@ -102,7 +119,7 @@ export async function login(req: NextRequest, email: string, password: string) {
     email,
   ]);
   const u = r.rows[0];
-  const dummy = "$2b$14$fmhjCcqKE15HfuHsBG876ukNgE6R8cs5i3dxFN3YG8MwlI2LzydEm";
+  const dummy = "$2b$12$9hLKcAjJOqWeUkXZbvEI8.l.MRbYDyFD.pDgSoZPdcJhCoDXnG0G6";
   const valid = await bcrypt.compare(password, u?.password_hash || dummy);
   if (!valid || !u?.active || u.mfa_required) {
     await audit(pool, null, "login.failed", "auth", null, {

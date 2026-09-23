@@ -38,11 +38,24 @@ const browser = await playwright.launch({
   headless: true,
 });
 const context = await browser.newContext();
+await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+  origin: "http://localhost:3000",
+});
 const errors: string[] = [];
 const page = await context.newPage();
 page.on("pageerror", (e) => errors.push(e.message));
 const css = await readFile("src/app/globals.css", "utf8");
 const app = await readFile("var/ui/app.js");
+await context.route("https://qr.example.invalid/**", async (r) => {
+  const label = r.request().url().includes("instapay") ? "InstaPay" : "Vodafone Cash";
+  const modules = Array.from({ length: 15 }, (_, y) =>
+    Array.from({ length: 15 }, (_, x) => ((x * 7 + y * 11 + x * y) % 5 < 2 ? `<rect x="${x * 10}" y="${y * 10}" width="10" height="10"/>` : "")).join(""),
+  ).join("");
+  await r.fulfill({
+    contentType: "image/svg+xml",
+    body: `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180"><rect width="180" height="180" fill="white"/><g transform="translate(15 15)" fill="#4F5B2D">${modules}</g><title>Test ${label} QR</title></svg>`,
+  });
+});
 await context.route("http://localhost:3000/**", async (r) => {
   try {
     const request = r.request(),
@@ -61,7 +74,7 @@ await context.route("http://localhost:3000/**", async (r) => {
         request.method() as keyof typeof route
       ] as typeof route.GET;
       const res = await fn(req, { params: Promise.resolve({ path: p }) });
-      if (!res.ok)
+      if (!res.ok && !(url.pathname === "/api/account/me" && res.status === 401))
         console.log(
           "API rejection",
           url.pathname,
@@ -139,6 +152,11 @@ const publicRoutes = process.env.QUICK_UI
       "/privacy",
       "/terms",
       "/track-order",
+      "/account/login",
+      "/account/register",
+      "/account",
+      "/account/orders",
+      "/account/addresses",
     ];
 for (const width of process.env.QUICK_UI ? [] : [1440, 768, 390]) {
   await page.setViewportSize({ width, height: 960 });
@@ -331,6 +349,84 @@ await page.screenshot({
   path: "var/ui/order-confirmation.png",
   fullPage: true,
 });
+
+await page.goto("http://localhost:3000/account/register");
+await page.getByLabel("Name", { exact: true }).fill("Browser Customer");
+await page.getByLabel("Email", { exact: true }).fill("browser-customer@example.invalid");
+await page.getByLabel("Mobile (optional)", { exact: true }).fill("01000000000");
+await page.getByLabel("New password", { exact: true }).fill("BrowserCustomer9!");
+await page.getByLabel("Confirm password", { exact: true }).fill("BrowserCustomer9!");
+await page.getByRole("button", { name: "Create account", exact: true }).click();
+await page.waitForURL("**/account");
+await page.getByRole("heading", { name: "Welcome, Browser Customer." }).waitFor();
+checks++;
+
+await page.goto("http://localhost:3000/account/addresses");
+await page.getByLabel("Label", { exact: true }).fill("Home");
+await page.getByLabel("Full name", { exact: true }).fill("Browser Customer");
+await page.getByLabel("Mobile", { exact: true }).fill("01000000000");
+await page.getByLabel("Governorate", { exact: true }).fill("QA region");
+await page.getByLabel("City", { exact: true }).fill("QA city");
+await page.getByLabel("Street address", { exact: true }).fill("QA Street");
+await page.getByRole("button", { name: "Add address", exact: true }).click();
+await page.getByRole("heading", { name: "Home", exact: true }).waitFor();
+checks++;
+
+await page.goto("http://localhost:3000/products/baby-shampoo");
+await page.getByRole("button", { name: "Add to bag", exact: true }).click();
+await page.getByRole("status").filter({ hasText: "Added to your bag." }).waitFor();
+await page.goto("http://localhost:3000/checkout");
+await page.getByLabel("Saved address").waitFor();
+await page.getByLabel("InstaPay", { exact: true }).check();
+await page.locator("input[name=acceptTerms]").check();
+await page.getByRole("button", { name: "Place order", exact: true }).click();
+await page.waitForURL("**/order-success?id=*");
+await page.getByRole("img", { name: "InstaPay payment QR code" }).waitFor();
+await page.getByRole("button", { name: "Copy account", exact: true }).click();
+await page.getByRole("button", { name: "Copied", exact: true }).waitFor();
+await page.getByLabel("Transaction reference", { exact: true }).fill("BROWSER-REF-123");
+await page.getByRole("button", { name: "Submit reference", exact: true }).click();
+await page.getByText("Submitted for verification.", { exact: true }).waitFor();
+checks += 2;
+
+await page.setViewportSize({ width: 390, height: 844 });
+assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Payment mobile overflow");
+await page.screenshot({ path: "var/ui/payment-instapay-mobile.png", fullPage: true });
+await page.goto("http://localhost:3000/account");
+await page.getByRole("heading", { name: "Welcome, Browser Customer." }).waitFor();
+assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Account mobile overflow");
+await page.screenshot({ path: "var/ui/account-mobile.png", fullPage: true });
+await page.goto("http://localhost:3000/account/orders");
+await page.getByRole("link", { name: "View details" }).first().click();
+await page.waitForURL("**/account/orders/*");
+await page.getByRole("heading", { name: "Order details" }).waitFor();
+assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Order detail mobile overflow");
+await page.screenshot({ path: "var/ui/account-order-mobile.png", fullPage: true });
+checks += 3;
+
+await page.setViewportSize({ width: 768, height: 960 });
+await page.goto("http://localhost:3000/products/baby-shampoo");
+await page.getByRole("button", { name: "Add to bag", exact: true }).click();
+await page.getByRole("status").filter({ hasText: "Added to your bag." }).waitFor();
+await page.goto("http://localhost:3000/checkout");
+await page.getByLabel("Saved address").waitFor();
+await page.getByLabel("Vodafone Cash", { exact: true }).check();
+await page.locator("input[name=acceptTerms]").check();
+await page.getByRole("button", { name: "Place order", exact: true }).click();
+await page.waitForURL("**/order-success?id=*");
+await page.getByRole("img", { name: "Vodafone Cash payment QR code" }).waitFor();
+await page.getByRole("button", { name: "Copy number", exact: true }).click();
+await page.getByRole("button", { name: "Copied", exact: true }).waitFor();
+assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Vodafone tablet overflow");
+await page.screenshot({ path: "var/ui/payment-vodafone-tablet.png", fullPage: true });
+checks += 2;
+
+await page.emulateMedia({ reducedMotion: "reduce" });
+await page.goto("http://localhost:3000/");
+assert.equal(await page.evaluate(() => document.body.classList.contains("motion-ready")), false, "Reduced motion remains enabled");
+assert.equal(await page.locator("main > section").evaluateAll((nodes) => nodes.every((node) => node.classList.contains("is-visible"))), true);
+await page.emulateMedia({ reducedMotion: "no-preference" });
+checks++;
 assert.deepEqual(errors, []);
 console.log(
   JSON.stringify({

@@ -140,6 +140,12 @@ export function Checkout({ data }: { data: StoreData }) {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [method, setMethod] = useState("cod"),
+    [account, setAccount] = useState<{ name: string; email: string; mobile: string | null } | null>(null),
+    [addresses, setAddresses] = useState<{
+      id: string; label: string; full_name: string; mobile: string; governorate: string;
+      city: string; street: string; building: string; floor: string; apartment: string; notes: string; is_default: boolean;
+    }[]>([]),
+    [selectedAddressId, setSelectedAddressId] = useState(""),
     [governorate, setGovernorate] = useState(""),
     [coupon, setCoupon] = useState(""),
     [estimate, setEstimate] = useState<{
@@ -154,6 +160,18 @@ export function Checkout({ data }: { data: StoreData }) {
       .then(setCart)
       .catch((e) => setError(e.message));
     analytics("begin_checkout");
+    api<{ name: string; email: string; mobile: string | null }>("account/me")
+      .then(async (me) => {
+        setAccount(me);
+        const saved = await api<typeof addresses>("account/addresses");
+        setAddresses(saved);
+        const preferred = saved.find((address) => address.is_default) || saved[0];
+        if (preferred) {
+          setSelectedAddressId(preferred.id);
+          setGovernorate(preferred.governorate);
+        }
+      })
+      .catch(() => undefined);
   }, []);
   useEffect(() => {
     setEstimate(null);
@@ -222,6 +240,8 @@ export function Checkout({ data }: { data: StoreData }) {
                   locale,
                   governorate,
                   acceptTerms: fields.acceptTerms === "on",
+                  savedAddressId: selectedAddressId || null,
+                  saveAddress: fields.saveAddress === "on",
                   idempotencyKey: key,
                 });
                 sessionStorage.setItem("last-order", res.id);
@@ -233,8 +253,45 @@ export function Checkout({ data }: { data: StoreData }) {
             }}
           >
             <div>
+              <div className="checkout-account-callout">
+                {account ? (
+                  <p>{t(`Signed in as ${account.name}.`, `تم تسجيل الدخول باسم ${account.name}.`)}</p>
+                ) : (
+                  <p>{t("Continue as guest, or", "يمكنكِ المتابعة كضيف، أو")} <Link href="/account/login">{t("sign in", "تسجيل الدخول")}</Link> / <Link href="/account/register">{t("create an account", "إنشاء حساب")}</Link>.</p>
+                )}
+              </div>
               <h2>{t("Your details", "بياناتك")}</h2>
-              <div className="fields">
+              {account && addresses.length > 0 && (
+                <label>
+                  {t("Saved address", "عنوان محفوظ")}
+                  <select value={selectedAddressId} onChange={(event) => {
+                    const id = event.target.value;
+                    setSelectedAddressId(id);
+                    const chosen = addresses.find((address) => address.id === id);
+                    setGovernorate(chosen?.governorate || "");
+                  }}>
+                    <option value="">{t("Enter a new address", "إدخال عنوان جديد")}</option>
+                    {addresses.map((address) => <option key={address.id} value={address.id}>{address.label || `${address.street}, ${address.city}`}</option>)}
+                  </select>
+                </label>
+              )}
+              {selectedAddressId ? (() => {
+                const address = addresses.find((item) => item.id === selectedAddressId)!;
+                return <div className="selected-address panel">
+                  <h3>{address.label || address.full_name}</h3>
+                  <p>{address.street}, {address.city}, {address.governorate}</p>
+                  <p dir="ltr">{address.mobile}</p>
+                  <input type="hidden" name="fullName" value={address.full_name} />
+                  <input type="hidden" name="mobile" value={address.mobile} />
+                  <input type="hidden" name="email" value={account?.email || ""} />
+                  <input type="hidden" name="city" value={address.city} />
+                  <input type="hidden" name="street" value={address.street} />
+                  <input type="hidden" name="building" value={address.building} />
+                  <input type="hidden" name="floor" value={address.floor} />
+                  <input type="hidden" name="apartment" value={address.apartment} />
+                  <input type="hidden" name="notes" value={address.notes} />
+                </div>;
+              })() : <div className="fields" key={account?.email || "guest"}>
                 {[
                   ["fullName", "Full name", "الاسم الكامل", "text", "name"],
                   ["mobile", "Mobile number", "رقم الموبايل", "tel", "tel"],
@@ -252,6 +309,8 @@ export function Checkout({ data }: { data: StoreData }) {
                         name === "mobile" ? "01[0125][0-9]{8}" : undefined
                       }
                       dir={type === "text" ? undefined : "ltr"}
+                      defaultValue={name === "fullName" ? account?.name || "" : name === "mobile" ? account?.mobile || "" : name === "email" ? account?.email || "" : ""}
+                      readOnly={name === "email" && !!account}
                     />
                   </label>
                 ))}
@@ -295,7 +354,8 @@ export function Checkout({ data }: { data: StoreData }) {
                   {t("Order notes", "ملاحظات الطلب")}
                   <textarea name="notes" maxLength={1000} />
                 </label>
-              </div>
+                {account && <label className="check span-2"><input name="saveAddress" type="checkbox" />{t("Save this address to my account", "حفظ هذا العنوان في حسابي")}</label>}
+              </div>}
               <h2>{t("Payment", "الدفع")}</h2>
               <label className="payment">
                 <input
@@ -409,7 +469,7 @@ export function Checkout({ data }: { data: StoreData }) {
     </>
   );
 }
-type OrderView = {
+export type OrderView = {
   id: string;
   reference: string;
   status: string;
@@ -419,14 +479,180 @@ type OrderView = {
   proof_uploaded: boolean;
   total: number;
   trackingToken: string;
-  items: { name_en: string; name_ar: string; quantity: number }[];
+  items: { name_en: string; name_ar: string; quantity: number; unit_price: number }[];
 };
+
+function CopyButton({ value, label }: { value: string; label: [string, string] }) {
+  const { t } = useStore();
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="copy-button"
+      onClick={async () => {
+        try {
+          if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+          else {
+            const fallback = document.createElement("textarea");
+            fallback.value = value;
+            fallback.setAttribute("readonly", "");
+            fallback.style.position = "fixed";
+            fallback.style.opacity = "0";
+            document.body.appendChild(fallback);
+            fallback.select();
+            if (!document.execCommand("copy")) throw new Error("COPY_FAILED");
+            fallback.remove();
+          }
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1800);
+        } catch {
+          setCopied(false);
+        }
+      }}
+    >
+      {copied ? t("Copied", "تم النسخ") : t(...label)}
+    </button>
+  );
+}
+
+export function PaymentInstructions({
+  order,
+  onUpdated,
+}: {
+  order: OrderView;
+  onUpdated: (order: OrderView) => void;
+}) {
+  const { t, locale, data, notify } = useStore();
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  if (!["instapay", "vodafone_cash"].includes(order.payment_method)) return null;
+  const insta = order.payment_method === "instapay";
+  const identifier = insta
+    ? data.settings.instapay.account
+    : data.settings.vodafoneCash.number;
+  const qrUrl = insta
+    ? data.settings.instapay.qrUrl
+    : data.settings.vodafoneCash.qrUrl;
+  return (
+    <section className="payment-instructions" aria-labelledby="manual-payment-title">
+      <div className="payment-heading">
+        <div>
+          <p className="eyebrow">{t("Manual payment", "دفع يدوي")}</p>
+          <h2 id="manual-payment-title">{insta ? "InstaPay" : "Vodafone Cash"}</h2>
+        </div>
+        <Status value={order.payment_status} />
+      </div>
+      <div className="payment-grid">
+        <div className="qr-shell">
+          {qrUrl ? (
+            <img
+              src={qrUrl}
+              alt={insta ? "InstaPay payment QR code" : "Vodafone Cash payment QR code"}
+              width="280"
+              height="280"
+            />
+          ) : (
+            <div className="qr-empty">
+              {t("QR code not configured yet.", "رمز QR غير مُعد حتى الآن.")}
+            </div>
+          )}
+        </div>
+        <div className="payment-facts">
+          <span>{insta ? t("InstaPay account", "حساب InstaPay") : t("Receiving number", "رقم الاستلام")}</span>
+          {identifier ? (
+            <div className="copy-row">
+              <strong dir="ltr">{identifier}</strong>
+              <CopyButton value={identifier} label={insta ? ["Copy account", "نسخ الحساب"] : ["Copy number", "نسخ الرقم"]} />
+            </div>
+          ) : (
+            <p className="small">{t("Payment identifier not configured yet.", "بيانات الاستلام غير مُعدّة حتى الآن.")}</p>
+          )}
+          <span>{t("Exact amount", "المبلغ المطلوب")}</span>
+          <strong>{currency(order.total, locale)}</strong>
+          <span>{t("Order ID", "رقم الطلب")}</span>
+          <div className="copy-row">
+            <strong dir="ltr">{order.reference}</strong>
+            <CopyButton value={order.reference} label={["Copy order ID", "نسخ رقم الطلب"]} />
+          </div>
+        </div>
+      </div>
+      <ol className="payment-steps">
+        <li>{t(`Scan the QR code or copy the ${insta ? "InstaPay account" : "Vodafone Cash number"}.`, `امسحي رمز QR أو انسخي ${insta ? "حساب InstaPay" : "رقم Vodafone Cash"}.`)}</li>
+        <li>{t("Transfer the exact order amount.", "حوّلي مبلغ الطلب كاملًا كما هو موضح.")}</li>
+        <li>{t("Keep the transaction reference.", "احتفظي بمرجع التحويل.")}</li>
+        <li>{t("Submit the reference and proof when available.", "أرسلي مرجع التحويل وصورة الإيصال إن توفرت.")}</li>
+        <li>{t("Payment remains Awaiting Confirmation until SOLÉA verifies it.", "تظل حالة الدفع بانتظار التأكيد حتى تراجع SOLÉA التحويل.")}</li>
+      </ol>
+      {order.payment_status === "awaiting_confirmation" && order.status === "pending" && (
+        <div className="payment-submit-grid">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setError("");
+              try {
+                const reference = String(new FormData(e.currentTarget).get("reference") || "");
+                await api("payment-submission", "POST", { orderId: order.id, reference });
+                onUpdated({ ...order, transfer_reference: reference });
+                notify(t("Payment submitted for verification.", "تم إرسال بيانات الدفع للمراجعة."));
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <label>
+              {t("Transaction reference", "مرجع التحويل")}
+              <input name="reference" defaultValue={order.transfer_reference || ""} required maxLength={120} dir="ltr" />
+            </label>
+            <button className="button secondary" disabled={busy}>
+              {t("Submit reference", "إرسال المرجع")}
+            </button>
+          </form>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setError("");
+              try {
+                const form = new FormData(e.currentTarget);
+                form.set("orderId", order.id);
+                await api("payment-proof", "POST", form);
+                onUpdated({ ...order, proof_uploaded: true });
+                notify(t("Payment submitted for verification.", "تم إرسال بيانات الدفع للمراجعة."));
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <label>
+              {t("Payment proof", "صورة إيصال الدفع")}
+              <input name="file" type="file" accept="image/jpeg,image/png,image/webp" required />
+            </label>
+            <button className="button secondary" disabled={busy}>
+              {order.proof_uploaded ? t("Replace proof", "استبدال الإيصال") : t("Upload proof", "رفع الإيصال")}
+            </button>
+          </form>
+        </div>
+      )}
+      {(order.transfer_reference || order.proof_uploaded) && order.payment_status === "awaiting_confirmation" && (
+        <p className="notice success">{t("Submitted for verification.", "تم الإرسال للمراجعة.")}</p>
+      )}
+      {order.payment_status === "rejected" && (
+        <p className="notice error">{t("Payment was rejected. Contact SOLÉA before sending another transfer.", "تم رفض الدفع. تواصلي مع SOLÉA قبل إجراء تحويل جديد.")}</p>
+      )}
+      {error && <ErrorMessage code={error} />}
+    </section>
+  );
+}
 export function OrderSuccess() {
-  const { t, locale, data } = useStore();
+  const { t, locale } = useStore();
   const query = useSearchParams();
   const [order, setOrder] = useState<OrderView | null>(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [error, setError] = useState("");
   useEffect(() => {
     const id = query.get("id") || sessionStorage.getItem("last-order");
     if (!id) {
@@ -481,42 +707,7 @@ export function OrderSuccess() {
             <Link className="text-link" href="/track-order">
               {t("Track your order", "تتبّعي طلبك")}
             </Link>
-            {["instapay", "vodafone_cash"].includes(order.payment_method) &&
-              order.payment_status === "awaiting_confirmation" &&
-              order.status === "pending" && (
-                <div className="panel">
-                  <h3>{order.payment_method === "instapay" ? "InstaPay" : "Vodafone Cash"}</h3>
-                  <p dir="ltr">
-                    {order.payment_method === "instapay"
-                      ? data.settings.instapay.account
-                      : data.settings.vodafoneCash.number}
-                  </p>
-                  {order.payment_method === "instapay" && data.settings.instapay.qrUrl && (
-                    <img src={data.settings.instapay.qrUrl} alt="InstaPay QR" width="220" height="220" />
-                  )}
-                  <p>{t("Upload a transfer proof if available.", "يمكنكِ رفع صورة إيصال التحويل إن وُجدت.")}</p>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    setBusy(true);
-                    setError("");
-                    try {
-                      const form = new FormData(e.currentTarget);
-                      form.set("orderId", order.id);
-                      await api("payment-proof", "POST", form);
-                      setOrder({ ...order, proof_uploaded: true });
-                    } catch (e) {
-                      setError((e as Error).message);
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}>
-                    <input name="file" type="file" accept="image/jpeg,image/png,image/webp" required />
-                    <button className="button full" disabled={busy}>
-                      {order.proof_uploaded ? t("Replace proof", "استبدال الإيصال") : t("Upload proof", "رفع الإيصال")}
-                    </button>
-                  </form>
-                </div>
-              )}
+            <PaymentInstructions order={order} onUpdated={setOrder} />
           </div>
         )}
       </section>

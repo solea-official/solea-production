@@ -5,6 +5,7 @@ export function manualPaymentSettings() {
   const instaAccount = process.env.INSTAPAY_ACCOUNT?.trim() || "";
   const vodafoneNumber = process.env.VODAFONE_CASH_NUMBER?.trim() || "";
   const qr = process.env.INSTAPAY_QR_URL?.trim() || "";
+  const vodafoneQr = process.env.VODAFONE_CASH_QR_URL?.trim() || "";
   return {
     instapay: {
       enabled: process.env.INSTAPAY_ENABLED === "true" && !!instaAccount,
@@ -14,6 +15,7 @@ export function manualPaymentSettings() {
     vodafoneCash: {
       enabled: process.env.VODAFONE_CASH_ENABLED === "true" && !!vodafoneNumber,
       number: vodafoneNumber,
+      qrUrl: /^https:\/\//.test(vodafoneQr) ? vodafoneQr : "",
     },
   };
 }

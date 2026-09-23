@@ -88,6 +88,8 @@ export const checkoutSchema = z
     notes: z.string().max(1000),
     payment: z.enum(["cod", "instapay", "vodafone_cash"]),
     transferReference: z.string().trim().max(120).default(""),
+    savedAddressId: uuid.nullable().default(null),
+    saveAddress: z.boolean().default(false),
     coupon: z
       .string()
       .trim()
@@ -96,6 +98,47 @@ export const checkoutSchema = z
       .default(""),
     locale: z.enum(["ar", "en"]),
     acceptTerms: z.literal(true),
+  })
+  .strict();
+
+export const customerPassword = z
+  .string()
+  .min(12)
+  .max(72)
+  .regex(/[A-Z]/)
+  .regex(/[a-z]/)
+  .regex(/[0-9]/)
+  .refine((v) => Buffer.byteLength(v, "utf8") <= 72);
+
+export const customerRegisterSchema = z
+  .object({
+    name: short,
+    email,
+    password: customerPassword,
+    mobile: z.union([phone, z.literal("")]).default(""),
+  })
+  .strict();
+
+export const customerLoginSchema = z
+  .object({
+    email,
+    password: z.string().min(1).max(72).refine((v) => Buffer.byteLength(v, "utf8") <= 72),
+  })
+  .strict();
+
+export const savedAddressSchema = z
+  .object({
+    label: z.string().trim().max(80).default(""),
+    full_name: short,
+    mobile: phone,
+    governorate: short,
+    city: short,
+    street: z.string().trim().min(3).max(300),
+    building: z.string().trim().max(60),
+    floor: z.string().trim().max(30),
+    apartment: z.string().trim().max(30),
+    notes: z.string().trim().max(1000),
+    is_default: z.boolean(),
   })
   .strict();
 export const couponSchema = z

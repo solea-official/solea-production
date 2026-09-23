@@ -30,7 +30,7 @@ const p = password.parse(entered);
 rl.close();
 const result = await pool.query(
   "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner') RETURNING id",
-  [e, await bcrypt.hash(p, 14)],
+  [e, await bcrypt.hash(p, 12)],
 );
 await audit(
   pool,

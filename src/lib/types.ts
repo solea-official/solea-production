@@ -48,7 +48,7 @@ export type Settings = {
   }[];
   free_shipping_threshold: number | null;
   instapay: { enabled: boolean; account: string; qrUrl: string };
-  vodafoneCash: { enabled: boolean; number: string };
+  vodafoneCash: { enabled: boolean; number: string; qrUrl: string };
 };
 export type StoreData = {
   settings: Settings;
