@@ -66,3 +66,19 @@ Focused test result: **5 passed, 0 failed**. The suite covers schema migration/R
 Focused review found two deployment-specific issues and remediated both before retest: the original CSP would have blocked Supabase product images and a configured InstaPay QR, so it now permits only the exact HTTPS origins from server configuration; and Supabase Data API roles could otherwise depend on project defaults, so migration 003 enables RLS on every application table without public policies. The application continues to use its server-only PostgreSQL connection and authorized API routes.
 
 Remaining limitations: no live Supabase/Vercel deployment or real manual transfer was performed; Storage bucket configuration, Supabase network/TLS behavior, Vercel runtime limits and final access policies require staging verification with client-owned accounts. This review is scoped to changed code and is not a claim of complete security.
+
+## Customer accounts, ownership and payment UX phase
+
+This was a focused review of the new customer authentication, account ownership, saved-address and QR/manual-payment changes. It was **not** the final production security audit.
+
+| Targeted verification | Result |
+|---|---|
+| Customer account/API tests | 7 passed, 0 failed: registration, bcrypt cost 14, duplicate registration, generic invalid login, session rotation/invalidation, logout, password change, hashed expiring single-use reset, authenticated/guest checkout, history/detail access, guest-order claim and customer/admin separation |
+| Ownership/IDOR tests | Passed: Customer B received 404 for Customer A order detail, order-success API, address update/delete and proof/order access; guest orders required both reference and private tracking key and could not be transferred after ownership |
+| Manual-payment/storage tests | 7 passed, 0 failed: COD, InstaPay/Vodafone configuration with/without safe QR, server-authoritative total, proof MIME/ownership, reference submission, prohibited customer status/amount fields, admin verification/rejection, duplicate transition safety and audit attribution |
+| Browser/UI checks | 75 route/responsive checks passed on Chromium at 1440/768/390 with no recorded page errors; a final focused 20-check rerun covered account registration, saved address, InstaPay/Vodafone QR/copy, reference submission, order history/detail and reduced motion after responsive CSS changes |
+| Static/build checks | ESLint, TypeScript and Next.js production build passed; the focused secret-pattern scan checked 71 files with no findings |
+
+The bcrypt cost-14 benchmark in this runtime averaged approximately 1.2 seconds per hash and was retained as requested. Customer and admin identities use mutually exclusive server-side session columns enforced by a database constraint. Customer order queries require `orders.account_id` ownership; historical guest orders are never attached by email or phone. Manual-payment customers can submit a reference or private proof but cannot update payment state or order totals.
+
+Remaining phase limitations: email delivery was not configured, so the reset UI remains generic and provider delivery requires staging credentials; QR images and receiving identifiers used only safe non-production test fixtures; no live transfer, Vercel deployment, Supabase project, physical-device/browser matrix or final external attack suite was performed.

@@ -20,6 +20,7 @@ export function Icon({ name = "arrow" }: { name?: string }) {
     close: "m6 6 12 12M6 18 18 6",
     check: "m5 12 4 4L19 6",
     phone: "M6 3 3 5c0 8 8 16 16 16l2-3-5-4-2 2-6-6 2-2-4-5Z",
+    user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9a7 7 0 0 1 14 0",
   };
   return (
     <svg

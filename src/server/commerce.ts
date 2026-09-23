@@ -173,6 +173,49 @@ export async function checkout(
         "PAYMENT_UNAVAILABLE",
       );
     }
+    const account = s.customer_account_id
+      ? (
+          await db.query(
+            "SELECT id,name,email,mobile FROM customer_accounts WHERE id=$1 AND active=true FOR SHARE",
+            [s.customer_account_id],
+          )
+        ).rows[0]
+      : null;
+    requireCondition(!s.customer_account_id || account, 401, "CUSTOMER_LOGIN_REQUIRED");
+    let delivery = {
+      fullName: data.fullName,
+      mobile: data.mobile,
+      email: account?.email || data.email,
+      governorate: data.governorate,
+      city: data.city,
+      street: data.street,
+      building: data.building,
+      floor: data.floor,
+      apartment: data.apartment,
+      notes: data.notes,
+    };
+    if (data.savedAddressId) {
+      requireCondition(account, 401, "CUSTOMER_LOGIN_REQUIRED");
+      const saved = (
+        await db.query(
+          "SELECT * FROM saved_addresses WHERE id=$1 AND account_id=$2",
+          [data.savedAddressId, account.id],
+        )
+      ).rows[0];
+      requireCondition(saved, 404, "ADDRESS_NOT_FOUND");
+      delivery = {
+        fullName: saved.full_name,
+        mobile: saved.mobile,
+        email: account.email,
+        governorate: saved.governorate,
+        city: saved.city,
+        street: saved.street,
+        building: saved.building,
+        floor: saved.floor,
+        apartment: saved.apartment,
+        notes: data.notes || saved.notes,
+      };
+    }
     const cart = (
       await db.query("SELECT id FROM carts WHERE session_id=$1 FOR UPDATE", [
         s.id,
@@ -229,11 +272,11 @@ export async function checkout(
       couponId = c.id;
       await db.query("UPDATE coupons SET used=used+1 WHERE id=$1", [c.id]);
     }
-    const fee = shippingFee(settings, data.governorate, subtotal - discount);
+    const fee = shippingFee(settings, delivery.governorate, subtotal - discount);
     const customer = (
       await db.query(
         "INSERT INTO customers(name,email,mobile) VALUES($1,$2,$3) RETURNING id",
-        [data.fullName, data.email, data.mobile],
+        [delivery.fullName, delivery.email, delivery.mobile],
       )
     ).rows[0];
     const address = (
@@ -241,12 +284,12 @@ export async function checkout(
         "INSERT INTO addresses(customer_id,governorate,city,street,building,floor,apartment) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
         [
           customer.id,
-          data.governorate,
-          data.city,
-          data.street,
-          data.building,
-          data.floor,
-          data.apartment,
+          delivery.governorate,
+          delivery.city,
+          delivery.street,
+          delivery.building,
+          delivery.floor,
+          delivery.apartment,
         ],
       )
     ).rows[0];
@@ -255,13 +298,14 @@ export async function checkout(
         "SOL-" + randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase(),
       trackingToken = sign("tracking:" + id);
     await db.query(
-      `INSERT INTO orders(id,reference,session_id,customer_id,address_id,tracking_hash,idempotency_key,request_hash,status,payment_method,subtotal,discount,shipping,total,coupon_id,notes,locale,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,$12,$13,$14,$15,$16,NULL)`,
+      `INSERT INTO orders(id,reference,session_id,customer_id,address_id,account_id,tracking_hash,idempotency_key,request_hash,status,payment_method,subtotal,discount,shipping,total,coupon_id,notes,locale,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,NULL)`,
       [
         id,
         reference,
         s.id,
         customer.id,
         address.id,
+        account?.id || null,
         hash(trackingToken),
         data.idempotencyKey,
         requestHash,
@@ -271,7 +315,7 @@ export async function checkout(
         fee,
         subtotal - discount + fee,
         couponId,
-        data.notes,
+        delivery.notes,
         data.locale,
       ],
     );
@@ -303,6 +347,31 @@ export async function checkout(
       ],
     );
     await db.query("INSERT INTO shipments(order_id) VALUES($1)", [id]);
+    if (account && data.saveAddress && !data.savedAddressId) {
+      const count = (
+        await db.query("SELECT count(*)::int n FROM saved_addresses WHERE account_id=$1", [
+          account.id,
+        ])
+      ).rows[0].n;
+      requireCondition(count < 20, 409, "ADDRESS_LIMIT");
+      await db.query(
+        `INSERT INTO saved_addresses(account_id,full_name,mobile,governorate,city,street,building,floor,apartment,notes,is_default)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          account.id,
+          delivery.fullName,
+          delivery.mobile,
+          delivery.governorate,
+          delivery.city,
+          delivery.street,
+          delivery.building,
+          delivery.floor,
+          delivery.apartment,
+          delivery.notes,
+          count === 0,
+        ],
+      );
+    }
     await db.query("DELETE FROM cart_items WHERE cart_id=$1", [cart.id]);
     if (process.env.EMAIL_ENABLED === "true")
       await enqueue(db, "order-email", id, "order-email:" + id);

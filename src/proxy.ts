@@ -5,7 +5,11 @@ import { notFoundDocument } from "./server/not-found-document";
 export async function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const dev = process.env.NODE_ENV !== "production";
-  const imageOrigins = [process.env.SUPABASE_URL, process.env.INSTAPAY_QR_URL]
+  const imageOrigins = [
+    process.env.SUPABASE_URL,
+    process.env.INSTAPAY_QR_URL,
+    process.env.VODAFONE_CASH_QR_URL,
+  ]
     .flatMap((value) => {
       try {
         const url = new URL(value || "");
@@ -37,6 +41,7 @@ export async function proxy(request: NextRequest) {
       missing = false;
     }
   }
+  if (/^account\/orders\/[a-f0-9-]{36}$/.test(pathname)) missing = false;
   const response = missing
     ? new NextResponse(
         notFoundDocument(request.cookies.get("lang")?.value === "ar"),

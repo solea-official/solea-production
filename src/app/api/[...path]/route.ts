@@ -24,6 +24,9 @@ import {
   password,
   loginSchema,
   checkoutSchema,
+  customerPassword,
+  customerRegisterSchema,
+  customerLoginSchema,
 } from "@/server/validation";
 import { getCart, setCartItem, checkout, quote } from "@/server/commerce";
 import { adminApi } from "@/server/admin-api";
@@ -34,6 +37,15 @@ import {
   removeStored,
   uploadPaymentProof,
 } from "@/server/storage";
+import {
+  changeCustomerPassword,
+  createCustomerReset,
+  loginCustomer,
+  logoutCustomer,
+  registerCustomer,
+  resetCustomerPassword,
+} from "@/server/customer-auth";
+import { customerApi } from "@/server/customer-api";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function handler(
@@ -83,7 +95,11 @@ async function handler(
     if (endpoint === "session" && method === "GET") {
       await rate(req, "session", 120, 60);
       const s = (await session(req)) || (await newSession());
-      const response = result({ csrf: sign(s.raw), admin: !!s.admin_id });
+      const response = result({
+        csrf: sign(s.raw),
+        admin: !!s.admin_id,
+        customer: !!s.customer_account_id,
+      });
       setSession(response, s);
       return response;
     }
@@ -174,7 +190,7 @@ async function handler(
         ).rows[0];
         requireCondition(r, 400, "INVALID_RESET");
         await db.query("UPDATE admin_users SET password_hash=$1 WHERE id=$2", [
-          await bcrypt.hash(d.password, 14),
+          await bcrypt.hash(d.password, 12),
           r.admin_id,
         ]);
         await db.query(
@@ -194,6 +210,83 @@ async function handler(
         );
       });
       return result({ ok: true });
+    }
+    if (endpoint === "account/register" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      const data = customerRegisterSchema.parse(await body());
+      const { next, account } = await registerCustomer(req, data);
+      const response = result({ account, csrf: sign(next.raw) }, 201);
+      setSession(response, next);
+      return response;
+    }
+    if (endpoint === "account/login" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      const data = customerLoginSchema.parse(await body());
+      const { next, account } = await loginCustomer(req, data.email, data.password);
+      const response = result({ account, csrf: sign(next.raw) });
+      setSession(response, next);
+      return response;
+    }
+    if (endpoint === "account/logout" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      const next = await logoutCustomer(req);
+      const response = result({ ok: true, csrf: sign(next.raw) });
+      setSession(response, next);
+      return response;
+    }
+    if (endpoint === "account/change-password" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      const data = z
+        .object({ currentPassword: z.string().min(1).max(72), newPassword: customerPassword })
+        .strict()
+        .parse(await body());
+      const next = await changeCustomerPassword(req, data.currentPassword, data.newPassword);
+      const response = result({ ok: true, csrf: sign(next.raw) });
+      setSession(response, next);
+      return response;
+    }
+    if (endpoint === "account/reset-request" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      await rate(req, "customer-reset", 5, 3600);
+      const data = z.object({ email }).strict().parse(await body());
+      if (
+        process.env.EMAIL_ENABLED === "true" &&
+        process.env.EMAIL_ADAPTER_URL &&
+        process.env.EMAIL_API_KEY &&
+        process.env.EMAIL_FROM
+      ) {
+        const reset = await createCustomerReset(data.email);
+        if (reset) {
+          try {
+            await sendEmail(
+              reset.account.email,
+              "SOLÉA — Password reset",
+              `${config().APP_URL}/account/reset?token=${reset.raw}`,
+              `customer-reset:${hash(reset.raw)}`,
+            );
+          } catch {
+            await pool.query("DELETE FROM customer_password_resets WHERE token_hash=$1", [
+              hash(reset.raw),
+            ]);
+          }
+        }
+      }
+      return result({ ok: true });
+    }
+    if (endpoint === "account/reset" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      await rate(req, "customer-reset-confirm", 10, 3600);
+      const data = z
+        .object({ token: z.string().regex(/^[a-f0-9]{64}$/), password: customerPassword })
+        .strict()
+        .parse(await body());
+      return result(await resetCustomerPassword(data.token, data.password));
     }
     if (
       parts[0] === "webhooks" &&
@@ -229,6 +322,13 @@ async function handler(
     if (parts[0] === "admin") {
       await rate(req, "admin", 300, 60);
       return result(await adminApi(req, parts, body));
+    }
+    if (parts[0] === "account") {
+      const s = await session(req);
+      requireCondition(s, 401, "SESSION_REQUIRED");
+      if (method !== "GET") csrf(req, s);
+      await rate(req, "account", 120, 60, s.id);
+      return result(await customerApi(req, parts, body));
     }
     const s = await session(req);
     requireCondition(s, 401, "SESSION_REQUIRED");
@@ -284,9 +384,9 @@ async function handler(
       const owned = (
         await pool.query(
           `SELECT 1 FROM payments p JOIN orders o ON o.id=p.order_id
-           WHERE o.id=$1 AND o.session_id=$2 AND o.payment_method IN ('instapay','vodafone_cash')
+           WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3) AND o.payment_method IN ('instapay','vodafone_cash')
            AND o.status='pending' AND p.status='awaiting_confirmation'`,
-          [orderId, s.id],
+          [orderId, s.id, s.customer_account_id],
         )
       ).rowCount;
       requireCondition(owned, 404, "ORDER_NOT_FOUND");
@@ -295,9 +395,9 @@ async function handler(
         const payment = (
           await db.query(
             `SELECT p.proof_storage_path FROM payments p JOIN orders o ON o.id=p.order_id
-             WHERE o.id=$1 AND o.session_id=$2 AND o.payment_method IN ('instapay','vodafone_cash')
+             WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3) AND o.payment_method IN ('instapay','vodafone_cash')
              AND o.status='pending' AND p.status='awaiting_confirmation' FOR UPDATE OF p,o`,
-            [orderId, s.id],
+            [orderId, s.id, s.customer_account_id],
           )
         ).rows[0];
         requireCondition(payment, 404, "ORDER_NOT_FOUND");
@@ -310,12 +410,40 @@ async function handler(
       if (old) await removeStored(old, true);
       return result({ ok: true });
     }
+    if (endpoint === "payment-submission" && method === "POST") {
+      await rate(req, "payment-submission", 10, 3600, s.id);
+      const data = z
+        .object({ orderId: uuid, reference: z.string().trim().min(1).max(120) })
+        .strict()
+        .parse(await body());
+      await transaction(async (db) => {
+        const payment = (
+          await db.query(
+            `SELECT p.order_id FROM payments p JOIN orders o ON o.id=p.order_id
+             WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3)
+             AND o.payment_method IN ('instapay','vodafone_cash')
+             AND o.status='pending' AND p.status='awaiting_confirmation' FOR UPDATE OF p,o`,
+            [data.orderId, s.id, s.customer_account_id],
+          )
+        ).rows[0];
+        requireCondition(payment, 404, "ORDER_NOT_FOUND");
+        await db.query(
+          "UPDATE payments SET transfer_reference=$1,updated_at=now() WHERE order_id=$2",
+          [data.reference, data.orderId],
+        );
+        await audit(db, null, "payment.customer-submitted", "orders", data.orderId, {
+          referenceProvided: true,
+          customerAccount: !!s.customer_account_id,
+        });
+      });
+      return result({ ok: true });
+    }
     if (endpoint === "order" && method === "GET") {
       const id = uuid.parse(req.nextUrl.searchParams.get("id"));
       const o = (
         await pool.query(
-          "SELECT o.id,o.reference,o.status,o.total,o.subtotal,o.discount,o.shipping,o.payment_method,o.created_at,p.status payment_status,p.transfer_reference,(p.proof_storage_path IS NOT NULL) proof_uploaded FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=$1 AND o.session_id=$2",
-          [id, s.id],
+          "SELECT o.id,o.reference,o.status,o.total,o.subtotal,o.discount,o.shipping,o.payment_method,o.created_at,p.status payment_status,p.transfer_reference,(p.proof_storage_path IS NOT NULL) proof_uploaded FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3)",
+          [id, s.id, s.customer_account_id],
         )
       ).rows[0];
       requireCondition(o, 404, "ORDER_NOT_FOUND");

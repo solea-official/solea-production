@@ -4,6 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import sharp from "sharp";
 import { db, engine, request, client, auth, Client } from "./helpers";
+const { manualPaymentSettings } = await import("../src/server/manual-payments");
 
 const password = "Aa9" + randomBytes(14).toString("hex");
 let owner: Client;
@@ -108,6 +109,58 @@ test("migration preserves relations and adds manual payment/storage fields", asy
     assert.ok(columns.includes(name), name);
 });
 
+test("manual payment settings support disabled, identifier-only, and QR states", () => {
+  const original = {
+    ie: process.env.INSTAPAY_ENABLED,
+    ia: process.env.INSTAPAY_ACCOUNT,
+    iq: process.env.INSTAPAY_QR_URL,
+    ve: process.env.VODAFONE_CASH_ENABLED,
+    vn: process.env.VODAFONE_CASH_NUMBER,
+    vq: process.env.VODAFONE_CASH_QR_URL,
+  };
+  Object.assign(process.env, {
+    INSTAPAY_ENABLED: "false",
+    INSTAPAY_ACCOUNT: "",
+    INSTAPAY_QR_URL: "javascript:unsafe",
+    VODAFONE_CASH_ENABLED: "false",
+    VODAFONE_CASH_NUMBER: "",
+    VODAFONE_CASH_QR_URL: "http://unsafe.invalid/qr.png",
+  });
+  let settings = manualPaymentSettings();
+  assert.equal(settings.instapay.enabled, false);
+  assert.equal(settings.instapay.qrUrl, "");
+  assert.equal(settings.vodafoneCash.enabled, false);
+  assert.equal(settings.vodafoneCash.qrUrl, "");
+
+  Object.assign(process.env, {
+    INSTAPAY_ENABLED: "true",
+    INSTAPAY_ACCOUNT: "test-instapay",
+    INSTAPAY_QR_URL: "https://qr.example.invalid/instapay.png",
+    VODAFONE_CASH_ENABLED: "true",
+    VODAFONE_CASH_NUMBER: "01000000000",
+    VODAFONE_CASH_QR_URL: "https://qr.example.invalid/vodafone.png",
+  });
+  settings = manualPaymentSettings();
+  assert.deepEqual(settings.instapay, {
+    enabled: true,
+    account: "test-instapay",
+    qrUrl: "https://qr.example.invalid/instapay.png",
+  });
+  assert.deepEqual(settings.vodafoneCash, {
+    enabled: true,
+    number: "01000000000",
+    qrUrl: "https://qr.example.invalid/vodafone.png",
+  });
+  Object.assign(process.env, {
+    INSTAPAY_ENABLED: original.ie,
+    INSTAPAY_ACCOUNT: original.ia,
+    INSTAPAY_QR_URL: original.iq,
+    VODAFONE_CASH_ENABLED: original.ve,
+    VODAFONE_CASH_NUMBER: original.vn,
+    VODAFONE_CASH_QR_URL: original.vq,
+  });
+});
+
 test("COD and manual checkout use database prices and configured zones", async () => {
   const cod = await createOrder("cod");
   const codRow = (
@@ -168,6 +221,55 @@ test("proof upload is validated, private and scoped to the owning order", async 
   const proof = await request(owner, `admin/orders/${order.id}/payment-proof`);
   assert.equal(proof.status, 200);
   assert.equal(proof.headers.get("cache-control"), "private,no-store");
+});
+
+test("customer payment submission is owner-scoped and cannot change status or amount", async () => {
+  const order = await createOrder("instapay");
+  const other = await client();
+  assert.equal(
+    (
+      await request(other, "payment-submission", "POST", {
+        orderId: order.id,
+        reference: "OTHER-REF",
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await request(order.customer, "payment-submission", "POST", {
+        orderId: order.id,
+        reference: "CUSTOMER-REF",
+        status: "paid",
+        total: 1,
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request(order.customer, "payment-submission", "POST", {
+        orderId: order.id,
+        reference: "CUSTOMER-REF",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await request(order.customer, `admin/orders/${order.id}/confirm-payment`, "POST", {})).status,
+    401,
+  );
+  const payment = (
+    await db.query(
+      "SELECT p.status,p.transfer_reference,o.total FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.id=$1",
+      [order.id],
+    )
+  ).rows[0];
+  assert.deepEqual(payment, {
+    status: "awaiting_confirmation",
+    transfer_reference: "CUSTOMER-REF",
+    total: 11_500,
+  });
 });
 
 test("only payment-authorized admins confirm or reject once and audit the actor", async () => {

@@ -13,4 +13,13 @@ export const publicPages: Record<string, string> = {
   returns: "Returns",
   privacy: "Privacy",
   terms: "Terms",
+  "account/login": "Sign in",
+  "account/register": "Create account",
+  "account/forgot": "Reset password",
+  "account/reset": "Choose a new password",
+  account: "My account",
+  "account/orders": "My orders",
+  "account/addresses": "Saved addresses",
+  "account/profile": "Profile",
+  "account/security": "Account security",
 };

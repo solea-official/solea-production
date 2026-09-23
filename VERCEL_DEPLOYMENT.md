@@ -1,7 +1,7 @@
 # Vercel deployment preparation
 
 1. Import the repository into Vercel and use Node.js 22. The build command is `npm run build`; no Docker runtime is required.
-2. Configure all Production/Preview environment variables from `.env.example`. Use separate Supabase projects or databases for preview and production.
+2. Configure all Production/Preview environment variables from `.env.example`. Use separate Supabase projects or databases for preview and production. Configure the optional InstaPay/Vodafone QR URLs only as server environment values; no service-role or payment value uses a `NEXT_PUBLIC_` variable.
 3. Before deployment, run migrations from a trusted workstation or CI with `DIRECT_DATABASE_URL`: `npm ci && npm run db:migrate && npm run db:seed`. Never run forward migrations concurrently.
 4. Set `APP_URL` to the assigned HTTPS Vercel URL for the target environment. Add the final domain only after Go-Live approval.
 5. Deploy and verify `/api/health`, storefront routes, protected admin routes, checkout methods and Storage upload/download behavior.

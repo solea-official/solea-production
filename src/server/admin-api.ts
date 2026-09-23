@@ -75,10 +75,26 @@ export async function adminApi(
       orders: allowed
         ? (
             await pool.query(
-              "SELECT status,count(*)::int count FROM orders GROUP BY status",
+              `SELECT o.status,count(*)::int order_count,
+               COALESCE(sum((SELECT sum(quantity) FROM order_items WHERE order_id=o.id)),0)::int units
+               FROM orders o GROUP BY o.status ORDER BY o.status`,
             )
           ).rows
         : [],
+      metrics: allowed
+        ? (
+            await pool.query(
+              `SELECT count(*)::int total_orders,
+               COALESCE(sum((SELECT sum(quantity) FROM order_items WHERE order_id=o.id)),0)::int units_ordered,
+               count(*) FILTER (WHERE o.status='pending')::int pending_orders,
+               count(*) FILTER (WHERE o.status='delivered')::int delivered_orders,
+               count(*) FILTER (WHERE o.status='cancelled')::int cancelled_orders,
+               count(*) FILTER (WHERE p.status='awaiting_confirmation')::int pending_payments,
+               COALESCE(sum(o.total) FILTER (WHERE p.status='paid'),0)::int revenue
+               FROM orders o JOIN payments p ON p.order_id=o.id`,
+            )
+          ).rows[0]
+        : {},
       products: user.permissions.includes("products")
         ? (
             await pool.query(
@@ -485,7 +501,7 @@ export async function adminApi(
         .parse(await body());
       const r = await pool.query(
         "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,$3) RETURNING id",
-        [d.email, await bcrypt.hash(d.password, 14), d.role],
+        [d.email, await bcrypt.hash(d.password, 12), d.role],
       );
       await audit(pool, user.id, "admin.create", "admin_users", r.rows[0].id);
       return { id: r.rows[0].id };
