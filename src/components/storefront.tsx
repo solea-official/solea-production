@@ -18,7 +18,7 @@ export function ProductCard({ product: p }: { product: Product }) {
           )}
           loading="lazy"
           width="650"
-          height="650"
+          height="813"
         />
         <span className="pill">
           {p.price === null
@@ -335,7 +335,7 @@ export function Home({
                   )}
                   loading="lazy"
                   width="500"
-                  height="500"
+                  height="625"
                 />
               </a>
             ),
@@ -455,43 +455,6 @@ export function Catalog({
   );
 }
 
-function GalleryCopy({ index }: { index: number }) {
-  if (index === 1)
-    return (
-      <div className="gallery-copy gallery-copy-left">
-        <span>THOUGHTFUL EVERYDAY CARE</span>
-        <h3>One gentle step.</h3>
-        <p>Baby Shampoo</p>
-        <p>Hair &amp; Body Wash</p>
-        <strong>125 mL</strong>
-      </div>
-    );
-  if (index === 2)
-    return (
-      <div className="gallery-copy gallery-copy-right">
-        <span>BABY-CARE ESSENTIAL</span>
-        <h3>Bath-time, made simple.</h3>
-        <p>Soft cleansing experience</p>
-        <p>Easy pump bottle</p>
-        <strong>125 mL</strong>
-      </div>
-    );
-  if (index === 3)
-    return (
-      <div className="gallery-copy gallery-copy-left how-to-copy">
-        <span>HOW TO USE</span>
-        <h3>Three simple steps.</h3>
-        <ol>
-          <li>Apply a small amount to wet hair or body.</li>
-          <li>Gently massage.</li>
-          <li>Rinse thoroughly with water.</li>
-        </ol>
-        <strong>125 mL</strong>
-      </div>
-    );
-  return null;
-}
-
 export function ProductDetail({
   product: p,
   data,
@@ -527,9 +490,8 @@ export function ProductDetail({
               src={image?.url || "/media/logo.png"}
               alt={t(image?.alt_en || p.name_en, image?.alt_ar || p.name_ar)}
               width="800"
-              height="800"
+              height="1000"
             />
-            {p.slug === "baby-shampoo" && <GalleryCopy index={index} />}
           </button>
           <div className="thumbnails">
             {images.map((img, i) => (
@@ -556,9 +518,8 @@ export function ProductDetail({
               src={image?.url || "/media/logo.png"}
               alt={t(image?.alt_en || p.name_en, image?.alt_ar || p.name_ar)}
               width="1000"
-              height="1000"
+              height="1250"
             />
-            {p.slug === "baby-shampoo" && <GalleryCopy index={index} />}
           </dialog>
         </div>
         <div className="detail-copy">

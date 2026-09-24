@@ -381,20 +381,12 @@ assert.equal(
 await revealPage();
 await page.screenshot({ path: "var/ui/product-desktop.png", fullPage: true });
 await page.locator(".thumbnails > button").nth(1).click();
-await page
-  .locator(".gallery-main")
-  .getByText("One gentle step.", { exact: true })
-  .waitFor();
 assert.match(
   String(await page.locator(".gallery-main img").getAttribute("src")),
   /product-benefits-v2\.webp$/,
 );
 await page.screenshot({ path: "var/ui/product-benefits.png", fullPage: true });
 await page.locator(".thumbnails > button").nth(3).click();
-await page
-  .locator(".gallery-main")
-  .getByText("Three simple steps.", { exact: true })
-  .waitFor();
 assert.match(
   String(await page.locator(".gallery-main img").getAttribute("src")),
   /product-how-to-v2\.webp$/,
