@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import sharp from "sharp";
-import { db, engine, request, client, auth, Client } from "./helpers";
+import { db, engine, request, client, customerClient, auth, Client } from "./helpers";
 const { manualPaymentSettings } = await import("../src/server/manual-payments");
 
 const password = "Aa9" + randomBytes(14).toString("hex");
@@ -54,7 +54,7 @@ function checkoutData(payment: "cod" | "instapay" | "vodafone_cash") {
 }
 
 async function createOrder(payment: "cod" | "instapay" | "vodafone_cash") {
-  const customer = await client();
+  const customer = await customerClient();
   assert.equal(
     (await request(customer, "cart", "POST", { productId, quantity: 1 })).status,
     200,

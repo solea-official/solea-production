@@ -10,6 +10,8 @@ import { PaymentInstructions, Status, type OrderView } from "./checkout";
 type Account = {
   id: string;
   name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   mobile: string | null;
   metrics: { orders: number; units: number };
@@ -83,7 +85,8 @@ export function AccountAuth({ mode }: { mode: "login" | "register" | "forgot" | 
               if (mode === "register") {
                 if (fields.password !== fields.confirmPassword) throw new Error("PASSWORD_MISMATCH");
                 await api("account/register", "POST", {
-                  name: fields.name,
+                  firstName: fields.firstName,
+                  lastName: fields.lastName,
                   email: fields.email,
                   password: fields.password,
                   mobile: fields.mobile,
@@ -112,14 +115,12 @@ export function AccountAuth({ mode }: { mode: "login" | "register" | "forgot" | 
             }
           }}
         >
-          {mode === "register" && (
-            <label>{t("Name", "الاسم")}<input name="name" autoComplete="name" required maxLength={150} /></label>
-          )}
+          {mode === "register" && <><label>{t("First name", "الاسم الأول")}<input name="firstName" autoComplete="given-name" required maxLength={150} /></label><label>{t("Last name", "اسم العائلة")}<input name="lastName" autoComplete="family-name" required maxLength={150} /></label></>}
           {mode !== "reset" && (
             <label>{t("Email", "البريد الإلكتروني")}<input name="email" type="email" autoComplete="email" required maxLength={254} dir="ltr" /></label>
           )}
           {mode === "register" && (
-            <label>{t("Mobile (optional)", "رقم الموبايل (اختياري)")}<input name="mobile" type="tel" autoComplete="tel" pattern="01[0125][0-9]{8}" dir="ltr" /></label>
+            <label>{t("Mobile", "رقم الموبايل")}<input name="mobile" type="tel" autoComplete="tel" pattern="01[0125][0-9]{8}" dir="ltr" required /></label>
           )}
           {["login", "register", "reset"].includes(mode) && (
             <label>{t(mode === "login" ? "Password" : "New password", mode === "login" ? "كلمة المرور" : "كلمة المرور الجديدة")}<input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={mode === "login" ? 1 : 12} maxLength={72} /></label>
@@ -166,7 +167,7 @@ function Orders({ rows }: { rows: OrderSummary[] }) {
           <div className="order-badges"><Status value={order.status} /><Status value={order.payment_status} /></div>
           <p>{t("Items", "المنتجات")}: {order.item_count} · {t("Units", "الوحدات")}: {order.units}</p>
           <strong>{currency(order.total, locale)}</strong>
-          <div className="actions"><Link className="text-link" href={`/account/orders/${order.id}`}>{t("View details", "عرض التفاصيل")}</Link><Link className="text-link" href="/track-order">{t("Track", "تتبّع")}</Link></div>
+          <div className="actions"><Link className="text-link" href={`/account/orders/${order.id}`}>{t("View details", "عرض التفاصيل")}</Link><Link className="text-link" href={`/account/orders/${order.id}`}>{t("Track", "تتبّع")}</Link></div>
         </article>
       ))}
     </div>
@@ -264,7 +265,7 @@ export function AccountCenter({ section, orderId }: { section: string; orderId?:
             <PaymentInstructions order={order} onUpdated={(next) => setOrder({ ...order, ...next })} />
           </div>}
           {section === "addresses" && <><div className="section-heading"><h2>{t("Saved addresses", "العناوين المحفوظة")}</h2><button className="button secondary" onClick={() => setEditing(undefined)}>{t("New address", "عنوان جديد")}</button></div>{!addresses.length && <p className="notice">{t("No saved addresses yet.", "لا توجد عناوين محفوظة بعد.")}</p>}<div className="address-grid">{addresses.map((address) => <article className="address-card" key={address.id}><div>{address.is_default && <span className="status">{t("Default", "افتراضي")}</span>}<h3>{address.label || address.full_name}</h3><p>{address.street}, {address.city}, {address.governorate}</p><p dir="ltr">{address.mobile}</p></div><div className="actions"><button className="text-link" onClick={() => setEditing(address)}>{t("Edit", "تعديل")}</button><button className="text-link" onClick={async () => { await api(`account/addresses/${address.id}`, "DELETE"); await load(); }}>{t("Delete", "حذف")}</button></div></article>)}</div><AddressForm key={editing?.id || "new"} initial={editing} onSaved={() => { setEditing(undefined); void load(); }} /></>}
-          {section === "profile" && <form className="panel account-form" onSubmit={async (event) => { event.preventDefault(); setError(""); try { await api("account/profile", "PUT", Object.fromEntries(new FormData(event.currentTarget))); await load(); } catch (error) { setError((error as Error).message); } }}><label>{t("Name", "الاسم")}<input name="name" defaultValue={account.name} required maxLength={150} /></label><label>{t("Mobile", "رقم الموبايل")}<input name="mobile" defaultValue={account.mobile || ""} pattern="01[0125][0-9]{8}" dir="ltr" /></label><label>{t("Email", "البريد الإلكتروني")}<input value={account.email} disabled dir="ltr" /></label><p className="small">{t("Email changes require verified email delivery and are not enabled yet.", "تغيير البريد يحتاج إلى تحقق بالبريد وغير مفعّل حاليًا.")}</p><button className="button">{t("Save profile", "حفظ الملف")}</button></form>}
+          {section === "profile" && <form className="panel account-form" onSubmit={async (event) => { event.preventDefault(); setError(""); try { await api("account/profile", "PUT", Object.fromEntries(new FormData(event.currentTarget))); await load(); } catch (error) { setError((error as Error).message); } }}><label>{t("First name", "الاسم الأول")}<input name="firstName" defaultValue={account.first_name} required maxLength={150} /></label><label>{t("Last name", "اسم العائلة")}<input name="lastName" defaultValue={account.last_name} required maxLength={150} /></label><label>{t("Mobile", "رقم الموبايل")}<input name="mobile" defaultValue={account.mobile || ""} required pattern="01[0125][0-9]{8}" dir="ltr" /></label><label>{t("Email", "البريد الإلكتروني")}<input value={account.email} disabled dir="ltr" /></label><p className="small">{t("Email changes require verified email delivery and are not enabled yet.", "تغيير البريد يحتاج إلى تحقق بالبريد وغير مفعّل حاليًا.")}</p><button className="button">{t("Save profile", "حفظ الملف")}</button></form>}
           {section === "security" && <><form className="panel account-form" onSubmit={async (event) => { event.preventDefault(); setError(""); const values = Object.fromEntries(new FormData(event.currentTarget)); if (values.newPassword !== values.confirmPassword) { setError("PASSWORD_MISMATCH"); return; } try { await api("account/change-password", "POST", { currentPassword: values.currentPassword, newPassword: values.newPassword }); router.refresh(); } catch (error) { setError((error as Error).message); } }}><label>{t("Current password", "كلمة المرور الحالية")}<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>{t("New password", "كلمة المرور الجديدة")}<input name="newPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={72} /></label><label>{t("Confirm new password", "تأكيد كلمة المرور الجديدة")}<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={72} /></label><button className="button">{t("Change password", "تغيير كلمة المرور")}</button></form><button className="text-link" onClick={async () => { await api("account/logout", "POST"); router.push("/"); router.refresh(); }}>{t("Log out from this account", "تسجيل الخروج من الحساب")}</button></>}
           {error && <ErrorMessage code={error} />}
         </div>

@@ -117,10 +117,11 @@ export const customerPassword = z
 
 export const customerRegisterSchema = z
   .object({
-    name: short,
+    firstName: short,
+    lastName: short,
     email,
     password: customerPassword,
-    mobile: z.union([phone, z.literal("")]).default(""),
+    mobile: phone,
   })
   .strict();
 

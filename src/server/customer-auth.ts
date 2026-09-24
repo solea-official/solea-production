@@ -13,6 +13,8 @@ import { AppError, requireCondition } from "./config";
 export type CustomerAccount = {
   id: string;
   name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   mobile: string | null;
 };
@@ -30,7 +32,7 @@ export async function customer(req: NextRequest) {
   requireCondition(s?.customer_account_id, 401, "CUSTOMER_LOGIN_REQUIRED");
   const account = (
     await pool.query(
-      "SELECT id,name,email,mobile FROM customer_accounts WHERE id=$1 AND active=true",
+      "SELECT id,name,first_name,last_name,email,mobile FROM customer_accounts WHERE id=$1 AND active=true",
       [s.customer_account_id],
     )
   ).rows[0] as CustomerAccount | undefined;
@@ -40,15 +42,24 @@ export async function customer(req: NextRequest) {
 
 export async function registerCustomer(
   req: NextRequest,
-  data: { name: string; email: string; password: string; mobile: string },
+  data: { firstName: string; lastName: string; email: string; password: string; mobile: string },
 ) {
   await rate(req, "customer-register", 5, 3600);
   const passwordHash = await bcrypt.hash(data.password, 14);
   const old = await session(req);
   const account = (
     await pool.query(
-      "INSERT INTO customer_accounts(name,email,mobile,password_hash) VALUES($1,$2,$3,$4) RETURNING id,name,email,mobile",
-      [data.name, data.email, data.mobile || null, passwordHash],
+      `INSERT INTO customer_accounts(name,first_name,last_name,email,mobile,password_hash)
+       VALUES($1,$2,$3,$4,$5,$6)
+       RETURNING id,name,first_name,last_name,email,mobile`,
+      [
+        `${data.firstName} ${data.lastName}`,
+        data.firstName,
+        data.lastName,
+        data.email,
+        data.mobile,
+        passwordHash,
+      ],
     )
   ).rows[0] as CustomerAccount;
   const next = await newSession(null, account.id);
@@ -89,7 +100,14 @@ export async function loginCustomer(
   await moveCart(old?.id, next.id);
   return {
     next,
-    account: { id: row.id, name: row.name, email: row.email, mobile: row.mobile } as CustomerAccount,
+    account: {
+      id: row.id,
+      name: row.name,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      email: row.email,
+      mobile: row.mobile,
+    } as CustomerAccount,
   };
 }
 

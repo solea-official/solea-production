@@ -20,12 +20,17 @@ export type Session = {
   customer_account_id: string | null;
   csrf_hash: string;
   raw: string;
+  pending_admin_id: string | null;
+  mfa_verified_at: Date | null;
 };
 export async function session(req: NextRequest): Promise<Session | null> {
   const raw = req.cookies.get(sessionCookie())?.value;
   if (!raw || !/^[a-f0-9]{64}$/.test(raw)) return null;
   const r = await pool.query(
-    "SELECT id,admin_id,customer_account_id,csrf_hash FROM sessions WHERE token_hash=$1 AND expires_at>now()",
+    `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND expires_at>now()
+     AND (admin_id IS NULL OR (mfa_verified_at IS NOT NULL AND last_seen_at>now()-interval '30 minutes'))
+     AND (customer_account_id IS NULL OR last_seen_at>now()-interval '7 days')
+     RETURNING id,admin_id,customer_account_id,csrf_hash,pending_admin_id,mfa_verified_at`,
     [hash(raw)],
   );
   return r.rows[0] ? { ...r.rows[0], raw } : null;
@@ -36,7 +41,9 @@ export async function newSession(
 ) {
   const raw = token();
   const r = await pool.query(
-    "INSERT INTO sessions(token_hash,admin_id,customer_account_id,csrf_hash,expires_at) VALUES($1,$2,$3,$4,now()+$5::interval) RETURNING id,admin_id,customer_account_id,csrf_hash",
+    `INSERT INTO sessions(token_hash,admin_id,customer_account_id,csrf_hash,expires_at,mfa_verified_at)
+     VALUES($1,$2,$3,$4,now()+$5::interval,CASE WHEN $2::uuid IS NULL THEN NULL ELSE now() END)
+     RETURNING id,admin_id,customer_account_id,csrf_hash,pending_admin_id,mfa_verified_at`,
     [
       hash(raw),
       adminId,
@@ -53,7 +60,7 @@ export function setSession(res: NextResponse, s: Session) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: s.admin_id ? 7200 : s.customer_account_id ? 2592000 : 1209600,
+    maxAge: s.pending_admin_id ? 300 : s.admin_id ? 7200 : s.customer_account_id ? 2592000 : 1209600,
   });
 }
 export function csrf(req: NextRequest, s: Session | null) {
@@ -70,9 +77,11 @@ export function csrf(req: NextRequest, s: Session | null) {
     "CSRF_REJECTED",
   );
 }
-function rateKey(req: NextRequest, scope: string, identity: string) {
+export function rateKey(req: NextRequest, scope: string, identity: string) {
   const ip =
-    process.env.TRUST_PROXY === "true"
+    process.env.VERCEL === "1"
+      ? req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || "unknown"
+      : process.env.TRUST_PROXY === "true"
       ? req.headers.get("x-real-ip") || "unknown"
       : "direct";
   return hash(`${scope}:${ip}:${identity}`);
@@ -83,8 +92,9 @@ export async function rate(
   limit: number,
   seconds: number,
   identity = "",
+  globalIdentity = false,
 ) {
-  const key = rateKey(req, scope, identity);
+  const key = globalIdentity ? hash(`${scope}:identity:${identity}`) : rateKey(req, scope, identity);
   const r = await pool.query(
     `INSERT INTO rate_limits(key,count,expires_at) VALUES($1,1,now()+$2::interval) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN rate_limits.expires_at<now() THEN 1 ELSE rate_limits.count+1 END,expires_at=CASE WHEN rate_limits.expires_at<now() THEN now()+$2::interval ELSE rate_limits.expires_at END RETURNING count`,
     [key, seconds + " seconds"],
@@ -93,9 +103,9 @@ export async function rate(
 }
 export async function admin(req: NextRequest, permission?: string) {
   const s = await session(req);
-  requireCondition(s?.admin_id, 401, "LOGIN_REQUIRED");
+  requireCondition(s?.admin_id && s.mfa_verified_at, 401, "LOGIN_REQUIRED");
   const r = await pool.query(
-    "SELECT a.id,a.email,a.role_id,r.permissions FROM admin_users a JOIN roles r ON r.id=a.role_id WHERE a.id=$1 AND a.active=true",
+    "SELECT a.id,a.email,a.role_id,r.permissions FROM admin_users a JOIN roles r ON r.id=a.role_id WHERE a.id=$1 AND a.active=true AND a.totp_enabled=true",
     [s.admin_id],
   );
   const user = r.rows[0];
@@ -111,13 +121,14 @@ export async function admin(req: NextRequest, permission?: string) {
 export async function login(req: NextRequest, email: string, password: string) {
   await rate(req, "login-ip", 30, 900);
   await rate(req, "login-account", 5, 900, email);
+  await rate(req, "login-distributed", 30, 900, email, true);
   const r = await pool.query("SELECT * FROM admin_users WHERE email=$1", [
     email,
   ]);
   const u = r.rows[0];
   const dummy = "$2b$12$9hLKcAjJOqWeUkXZbvEI8.l.MRbYDyFD.pDgSoZPdcJhCoDXnG0G6";
   const valid = await bcrypt.compare(password, u?.password_hash || dummy);
-  if (!valid || !u?.active || u.mfa_required) {
+  if (!valid || !u?.active) {
     await audit(pool, null, "login.failed", "auth", null, {
       account: hash(email),
     });
@@ -126,16 +137,18 @@ export async function login(req: NextRequest, email: string, password: string) {
   await pool.query("DELETE FROM rate_limits WHERE key=$1", [
     rateKey(req, "login-account", email),
   ]);
+  await pool.query("DELETE FROM rate_limits WHERE key=$1", [hash(`login-distributed:identity:${email}`)]);
   const old = await session(req);
-  const s = await newSession(u.id);
+  const s = await newSession();
   await transaction(async (db) => {
+    await db.query("UPDATE sessions SET pending_admin_id=$1,expires_at=now()+interval '5 minutes' WHERE id=$2", [u.id, s.id]);
     if (old)
       await db.query("UPDATE sessions SET expires_at=now() WHERE id=$1", [
         old.id,
       ]);
-    await audit(db, u.id, "login.success", "auth", u.id);
+    await audit(db, u.id, "login.challenge", "auth", u.id);
   });
-  return s;
+  return { ...s, pending_admin_id: u.id };
 }
 export function verifyWebhook(
   raw: string,

@@ -33,14 +33,22 @@ export async function customerApi(
     requireCondition(method === "PUT", 405, "METHOD_NOT_ALLOWED");
     const data = z
       .object({
-        name: z.string().trim().min(1).max(150),
-        mobile: z.union([z.string().regex(/^01[0125][0-9]{8}$/), z.literal("")]),
+        firstName: z.string().trim().min(1).max(150),
+        lastName: z.string().trim().min(1).max(150),
+        mobile: z.string().regex(/^01[0125][0-9]{8}$/),
       })
       .strict()
       .parse(await body());
     await pool.query(
-      "UPDATE customer_accounts SET name=$1,mobile=$2,updated_at=now() WHERE id=$3",
-      [data.name, data.mobile || null, account.id],
+      `UPDATE customer_accounts SET name=$1,first_name=$2,last_name=$3,mobile=$4,updated_at=now()
+       WHERE id=$5`,
+      [
+        `${data.firstName} ${data.lastName}`,
+        data.firstName,
+        data.lastName,
+        data.mobile,
+        account.id,
+      ],
     );
     await audit(pool, null, "customer.profile-updated", "customer_accounts", account.id);
     return { ok: true };

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, currency, analytics } from "@/lib/api";
+import { resolveOrderSuccessId } from "@/lib/routes";
 import { Cart, StoreData } from "@/lib/types";
 import { useStore, ErrorMessage } from "./provider";
 import { PageTitle } from "./storefront";
@@ -144,9 +145,12 @@ export function Checkout({ data }: { data: StoreData }) {
     >("cod"),
     [account, setAccount] = useState<{
       name: string;
+      first_name: string;
+      last_name: string;
       email: string;
       mobile: string | null;
     } | null>(null),
+    [accountChecked, setAccountChecked] = useState(false),
     [addresses, setAddresses] = useState<
       {
         id: string;
@@ -178,7 +182,7 @@ export function Checkout({ data }: { data: StoreData }) {
       .then(setCart)
       .catch((e) => setError(e.message));
     analytics("begin_checkout");
-    api<{ name: string; email: string; mobile: string | null }>("account/me")
+    api<{ name: string; first_name: string; last_name: string; email: string; mobile: string | null }>("account/me")
       .then(async (me) => {
         setAccount(me);
         const saved = await api<typeof addresses>("account/addresses");
@@ -190,7 +194,8 @@ export function Checkout({ data }: { data: StoreData }) {
           setGovernorate(preferred.governorate);
         }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setAccountChecked(true));
   }, []);
   useEffect(() => {
     setEstimate(null);
@@ -228,7 +233,17 @@ export function Checkout({ data }: { data: StoreData }) {
       />
       <section className="section compact wrap">
         {error && <ErrorMessage code={error} />}{" "}
-        {!ready ? (
+        {!accountChecked ? (
+          <p role="status">{t("Checking your account…", "جارٍ التحقق من حسابك…")}</p>
+        ) : !account ? (
+          <div className="empty">
+            <h2>{t("Sign in to continue.", "سجّلي الدخول للمتابعة.")}</h2>
+            <p>{t("Sign in or create your SOLÉA account to continue.", "سجّلي الدخول أو أنشئي حساب SOLÉA للمتابعة.")}</p>
+            <div className="actions"><Link className="button" href="/account/login">{t("Sign in", "تسجيل الدخول")}</Link><Link className="button secondary" href="/account/register">{t("Create account", "إنشاء حساب")}</Link></div>
+          </div>
+        ) : !account.first_name || !account.last_name || !account.mobile ? (
+          <div className="empty"><h2>{t("Complete your profile.", "أكملي ملفك الشخصي.")}</h2><p>{t("Your first name, last name and mobile number are required before ordering.", "الاسم الأول واسم العائلة ورقم الموبايل مطلوبة قبل الطلب.")}</p><Link className="button" href="/account/profile">{t("Complete profile", "إكمال الملف")}</Link></div>
+        ) : !ready ? (
           <div className="empty">
             <h2>{t("Our first chapter is coming soon.", "بدايتنا تقترب.")}</h2>
             <p>
@@ -272,7 +287,7 @@ export function Checkout({ data }: { data: StoreData }) {
                   window.location.assign(res.checkoutUrl);
                   return;
                 }
-                router.push("/order-success?id=" + res.id);
+                router.push("/order-success?orderId=" + encodeURIComponent(res.id));
               } catch (e) {
                 setError((e as Error).message);
                 setKey(crypto.randomUUID());
@@ -282,26 +297,7 @@ export function Checkout({ data }: { data: StoreData }) {
           >
             <div>
               <div className="checkout-account-callout">
-                {account ? (
-                  <p>
-                    {t(
-                      `Signed in as ${account.name}.`,
-                      `تم تسجيل الدخول باسم ${account.name}.`,
-                    )}
-                  </p>
-                ) : (
-                  <p>
-                    {t("Continue as guest, or", "يمكنكِ المتابعة كضيف، أو")}{" "}
-                    <Link href="/account/login">
-                      {t("sign in", "تسجيل الدخول")}
-                    </Link>{" "}
-                    /{" "}
-                    <Link href="/account/register">
-                      {t("create an account", "إنشاء حساب")}
-                    </Link>
-                    .
-                  </p>
-                )}
+                <p>{t(`Signed in as ${account.name}.`, `تم تسجيل الدخول باسم ${account.name}.`)}</p>
               </div>
               <h2>{t("Your details", "بياناتك")}</h2>
               {account && addresses.length > 0 && (
@@ -894,7 +890,10 @@ export function OrderSuccess() {
   const [order, setOrder] = useState<OrderView | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
-    const id = query.get("orderId") || sessionStorage.getItem("last-order");
+    const id = resolveOrderSuccessId(
+      query,
+      sessionStorage.getItem("last-order"),
+    );
     if (!id) {
       setError("ORDER_NOT_FOUND");
       return;

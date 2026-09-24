@@ -29,7 +29,7 @@ declare global {
 const { products, data, locale, user } = window.fixture,
   path = location.pathname.slice(1).split("/");
 let page: React.ReactNode;
-if (path[0] === "admin")
+if (path[0] === "ops-portal")
   page =
     path.length === 1 ? (
       <Login />

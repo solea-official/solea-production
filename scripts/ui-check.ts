@@ -19,10 +19,16 @@ await import("./seed");
 const { products } = await import("../src/server/catalog");
 const { storeData } = await import("../src/server/store");
 const { admin } = await import("../src/server/security");
+const { encryptMfa, totpCode } = await import("../src/server/totp");
 const adminPassword = "BrowserA1" + randomBytes(10).toString("hex");
-await db.query(
-  "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner')",
+const uiAdmin = await db.query(
+  "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner') RETURNING id",
   ["ui@example.invalid", await bcrypt.hash(adminPassword, 4)],
+);
+const uiMfaSecret = randomBytes(20);
+await db.query(
+  "UPDATE admin_users SET totp_ciphertext=$1,totp_enabled=true WHERE id=$2",
+  [encryptMfa(uiMfaSecret, uiAdmin.rows[0].id), uiAdmin.rows[0].id],
 );
 await mkdir("var/ui", { recursive: true });
 await build({
@@ -129,11 +135,11 @@ await context.route("http://localhost:3000/**", async (r) => {
     }
     const locale = h.cookie?.includes("lang=ar") ? "ar" : "en";
     let user = null;
-    if (url.pathname.startsWith("/admin/")) {
+    if (url.pathname.startsWith("/ops-portal/")) {
       try {
         user = (await admin(new NextRequest(url.href, { headers: h }))).user;
       } catch {
-        await r.fulfill({ status: 302, headers: { location: "/admin" } });
+        await r.fulfill({ status: 302, headers: { location: "/ops-portal" } });
         return;
       }
     }
@@ -309,11 +315,13 @@ for (const width of process.env.QUICK_UI ? [] : [1440, 768, 390]) {
   await page.waitForFunction(() => document.documentElement.lang === "en");
 }
 await page.setViewportSize({ width: 1440, height: 1000 });
-await page.goto("http://localhost:3000/admin");
+await page.goto("http://localhost:3000/ops-portal");
 await page.getByLabel("Email", { exact: true }).fill("ui@example.invalid");
 await page.getByLabel("Password", { exact: true }).fill(adminPassword);
 await page.getByRole("button", { name: "Sign in", exact: true }).click();
-await page.waitForURL("**/admin/dashboard").catch(async (e) => {
+await page.getByLabel("Authenticator code").fill(totpCode(uiMfaSecret, Math.floor(Date.now() / 30_000)));
+await page.getByRole("button", { name: "Verify", exact: true }).click();
+await page.waitForURL("**/ops-portal/dashboard").catch(async (e) => {
   console.log(
     "LOGIN FAILURE",
     page.url(),
@@ -335,7 +343,7 @@ for (const route of [
   "users",
   "audit",
 ]) {
-  await page.goto("http://localhost:3000/admin/" + route);
+  await page.goto("http://localhost:3000/ops-portal/" + route);
   await page.locator(".admin-main").waitFor();
   await page.waitForTimeout(100);
   assert.equal(
@@ -345,19 +353,28 @@ for (const route of [
   );
   checks++;
 }
-await page.goto("http://localhost:3000/admin/products/new");
+await page.goto("http://localhost:3000/ops-portal/products/new");
 await page.getByLabel("name en", { exact: true }).fill("SOLÉA Browser Test");
 await page.getByLabel("name ar", { exact: true }).fill("منتج اختبار SOLÉA");
 await page.getByLabel("sku", { exact: true }).fill("UI-TEST");
 await page.getByLabel("slug", { exact: true }).fill("ui-test");
 await page.getByRole("button", { name: "Save product" }).click();
-await page.waitForURL("**/admin/products");
+await page.waitForURL("**/ops-portal/products");
 assert.equal(
   (await db.query("SELECT count(*)::int n FROM products WHERE sku='UI-TEST'"))
     .rows[0].n,
   1,
 );
 checks++;
+await page.goto("http://localhost:3000/account/register");
+await page.getByLabel("First name").fill("Browser");
+await page.getByLabel("Last name").fill("Customer");
+await page.getByLabel("Email").fill("browser-customer@example.invalid");
+await page.getByLabel("Mobile").fill("01000000000");
+await page.getByLabel("New password").fill("BrowserCustomer9!");
+await page.getByLabel("Confirm password").fill("BrowserCustomer9!");
+await page.getByRole("button", { name: "Create account" }).click();
+await page.waitForURL("**/account");
 await db.query(
   'UPDATE store_settings SET enabled=true,shipping_zones=\'[{"governorate":"QA region","zone":"","fee":500,"active":true}]\'',
 );
@@ -406,7 +423,7 @@ await page.getByLabel("City", { exact: true }).fill("QA city");
 await page.getByLabel("Street address").fill("QA Street");
 await page.locator("input[name=acceptTerms]").check();
 await page.getByRole("button", { name: "Place order", exact: true }).click();
-await page.waitForURL("**/order-success?id=*");
+await page.waitForURL("**/order-success?orderId=*");
 await page.locator(".tracking-key").waitFor();
 checks++;
 await page.screenshot({
@@ -459,7 +476,7 @@ assert.equal(
 await page.getByLabel("InstaPay", { exact: true }).check();
 await page.locator("input[name=acceptTerms]").check();
 await page.getByRole("button", { name: "Place order", exact: true }).click();
-await page.waitForURL("**/order-success?id=*");
+await page.waitForURL("**/order-success?orderId=*");
 await page.getByRole("img", { name: "InstaPay payment QR code" }).waitFor();
 await page.getByRole("button", { name: "Copy account", exact: true }).click();
 await page.getByRole("button", { name: "Copied", exact: true }).waitFor();
@@ -519,7 +536,7 @@ await page.getByLabel("Saved address").waitFor();
 await page.getByLabel("Vodafone Cash", { exact: true }).check();
 await page.locator("input[name=acceptTerms]").check();
 await page.getByRole("button", { name: "Place order", exact: true }).click();
-await page.waitForURL("**/order-success?id=*");
+await page.waitForURL("**/order-success?orderId=*");
 await page
   .getByRole("img", { name: "Vodafone Cash payment QR code" })
   .waitFor();

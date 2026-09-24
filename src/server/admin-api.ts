@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { pool, transaction, audit } from "./db";
-import { admin } from "./security";
+import { admin, rate } from "./security";
 import { products } from "./catalog";
 import {
   productSchema,
@@ -39,10 +39,29 @@ export async function adminApi(
       sessions: "users",
       jobs: "settings",
       payments: "payments",
+      security: "users",
     } as Record<string, string>
   )[resource];
-  const { user } = await admin(req, permission);
+  const { user, s } = await admin(req, permission);
+  if (!["GET", "HEAD"].includes(method))
+    await rate(req, "admin-mutation", 60, 60, user.id, true);
+  const requireRecentMfa = () =>
+    requireCondition(
+      s.mfa_verified_at &&
+        Date.now() - new Date(s.mfa_verified_at).getTime() < 10 * 60_000,
+      401,
+      "RECENT_MFA_REQUIRED",
+    );
   if (resource === "me") return user;
+  if (resource === "security") {
+    requireCondition(method === "GET", 405, "METHOD_NOT_ALLOWED");
+    return (
+      await pool.query(
+        "SELECT totp_enabled,mfa_required FROM admin_users WHERE id=$1",
+        [user.id],
+      )
+    ).rows[0];
+  }
   if (resource === "jobs") {
     if (method === "GET")
       return (
@@ -511,6 +530,7 @@ export async function adminApi(
         )
       ).rows;
     if (method === "POST") {
+      requireRecentMfa();
       const d = z
         .object({
           email,
@@ -521,12 +541,13 @@ export async function adminApi(
         .parse(await body());
       const r = await pool.query(
         "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,$3) RETURNING id",
-        [d.email, await bcrypt.hash(d.password, 12), d.role],
+        [d.email, await bcrypt.hash(d.password, 14), d.role],
       );
       await audit(pool, user.id, "admin.create", "admin_users", r.rows[0].id);
       return { id: r.rows[0].id };
     }
     if (method === "PUT") {
+      requireRecentMfa();
       uuid.parse(id);
       const d = z
         .object({
@@ -551,6 +572,7 @@ export async function adminApi(
     }
   }
   if (resource === "sessions" && method === "DELETE") {
+    requireRecentMfa();
     uuid.parse(id);
     await pool.query("UPDATE sessions SET expires_at=now() WHERE admin_id=$1", [
       id,

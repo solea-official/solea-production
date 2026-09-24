@@ -188,23 +188,24 @@ export async function checkout(
         "PAYMENT_UNAVAILABLE",
       );
     }
-    const account = s.customer_account_id
-      ? (
-          await db.query(
-            "SELECT id,name,email,mobile FROM customer_accounts WHERE id=$1 AND active=true FOR SHARE",
-            [s.customer_account_id],
-          )
-        ).rows[0]
-      : null;
+    requireCondition(s.customer_account_id, 401, "CUSTOMER_LOGIN_REQUIRED");
+    const account = (
+      await db.query(
+        `SELECT id,name,first_name,last_name,email,mobile FROM customer_accounts
+         WHERE id=$1 AND active=true FOR SHARE`,
+        [s.customer_account_id],
+      )
+    ).rows[0];
+    requireCondition(account, 401, "CUSTOMER_LOGIN_REQUIRED");
     requireCondition(
-      !s.customer_account_id || account,
-      401,
-      "CUSTOMER_LOGIN_REQUIRED",
+      account.first_name?.trim() && account.last_name?.trim() && account.mobile,
+      409,
+      "PROFILE_INCOMPLETE",
     );
     let delivery = {
       fullName: data.fullName,
       mobile: data.mobile,
-      email: account?.email || data.email,
+      email: account.email,
       governorate: data.governorate,
       city: data.city,
       street: data.street,
@@ -330,7 +331,7 @@ export async function checkout(
         s.id,
         customer.id,
         address.id,
-        account?.id || null,
+        account.id,
         hash(trackingToken),
         data.idempotencyKey,
         requestHash,

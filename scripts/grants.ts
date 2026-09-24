@@ -1,4 +1,10 @@
-import { pool, transaction } from "../src/server/db";
+export {};
+
+if (process.env.DIRECT_DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.DIRECT_DATABASE_URL;
+}
+
+const { pool, transaction } = await import("../src/server/db");
 
 const selectTables = [
   "roles",

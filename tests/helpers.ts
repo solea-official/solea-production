@@ -1,12 +1,14 @@
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import bcrypt from "bcryptjs";
 import { readFile, readdir } from "node:fs/promises";
 import { NextRequest } from "next/server";
 Object.assign(process.env, {
   NODE_ENV: "test",
   APP_URL: "http://localhost:3000",
   SESSION_SECRET: randomBytes(32).toString("hex"),
+  ADMIN_MFA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   DATABASE_URL: "postgresql://test-only",
   INSTAPAY_ENABLED: "true",
   INSTAPAY_ACCOUNT: "test-instapay",
@@ -91,6 +93,7 @@ export function storedObject(bucket: string, path: string) {
 export const db = (await import("../src/server/db")).pool;
 export const route = await import("../src/app/api/[...path]/route");
 export type Client = { cookie: string; csrf: string };
+const adminRecoveryCodes = new Map<string, string[]>();
 export async function request(
   client: Client | null,
   path: string,
@@ -129,6 +132,22 @@ export async function client(): Promise<Client> {
   const d = await r.json();
   return { cookie: r.headers.get("set-cookie")!.split(";")[0], csrf: d.csrf };
 }
+export async function customerClient(email = `${randomUUID()}@example.invalid`) {
+  const c = await client();
+  const account = (
+    await db.query(
+      `INSERT INTO customer_accounts(name,first_name,last_name,email,mobile,password_hash)
+       VALUES('Test Customer','Test','Customer',$1,'01000000000',$2) RETURNING id`,
+      [email, await bcrypt.hash(`Fixture9${randomBytes(8).toString("hex")}`, 4)],
+    )
+  ).rows[0];
+  const raw = c.cookie.slice(c.cookie.indexOf("=") + 1);
+  await db.query("UPDATE sessions SET customer_account_id=$1 WHERE token_hash=$2", [
+    account.id,
+    createHash("sha256").update(raw).digest("hex"),
+  ]);
+  return c;
+}
 export async function clearRates() {
   await db.query("DELETE FROM rate_limits");
 }
@@ -138,5 +157,50 @@ export async function auth(email: string, password: string) {
   if (!r.ok) throw new Error("Fixture auth failure " + (await r.text()));
   c.cookie = r.headers.get("set-cookie")!.split(";")[0];
   c.csrf = (await r.json()).csrf;
+  const statusResponse = await request(c, "auth/mfa");
+  const status = await statusResponse.json();
+  if (status.challenge === "enroll") {
+    const setupResponse = await request(c, "auth/mfa/setup");
+    const setup = await setupResponse.json();
+    const { totpCode } = await import("../src/server/totp");
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bits = 0;
+    let value = 0;
+    const bytes: number[] = [];
+    for (const letter of setup.manualKey) {
+      value = (value << 5) | alphabet.indexOf(letter);
+      bits += 5;
+      if (bits >= 8) {
+        bits -= 8;
+        bytes.push((value >>> bits) & 255);
+      }
+    }
+    const enrolled = await request(c, "auth/mfa/enroll", "POST", {
+      code: totpCode(Buffer.from(bytes), Math.floor(Date.now() / 30_000)),
+    });
+    if (!enrolled.ok) throw new Error("Fixture MFA enrollment failure " + (await enrolled.text()));
+    c.cookie = enrolled.headers.get("set-cookie")!.split(";")[0];
+    const enrolledData = await enrolled.json();
+    c.csrf = enrolledData.csrf;
+    adminRecoveryCodes.set(email, enrolledData.recoveryCodes || []);
+  } else {
+    const row = (
+      await db.query(
+        "SELECT id,totp_ciphertext,totp_last_counter,recovery_hashes FROM admin_users WHERE email=$1",
+        [email],
+      )
+    ).rows[0];
+    const { decryptMfa, totpCode } = await import("../src/server/totp");
+    const counter = Math.floor(Date.now() / 30_000);
+    const codes = adminRecoveryCodes.get(email) || [];
+    const payload =
+      Number(row.totp_last_counter) < counter
+        ? { code: totpCode(decryptMfa(row.totp_ciphertext, row.id), counter) }
+        : { recoveryCode: codes.shift() || "fixture-code-unavailable" };
+    const verified = await request(c, "auth/mfa/verify", "POST", payload);
+    if (!verified.ok) throw new Error("Fixture MFA verification failure " + (await verified.text()));
+    c.cookie = verified.headers.get("set-cookie")!.split(";")[0];
+    c.csrf = (await verified.json()).csrf;
+  }
   return c;
 }

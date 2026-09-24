@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   headers.set("Content-Security-Policy", csp);
   const pathname = request.nextUrl.pathname.replace(/\/$/, "").slice(1);
   const internal =
-    /^(?:api|admin|media|_next|_not-found)(?:\/|$)/.test(pathname) ||
+    /^(?:api|ops-portal|media|_next|_not-found)(?:\/|$)/.test(pathname) ||
     ["robots.txt", "sitemap.xml", "favicon.ico"].includes(pathname);
   let missing = !internal && !Object.hasOwn(publicPages, pathname);
   if (/^products\/[^/]+$/.test(pathname)) {
@@ -62,6 +62,14 @@ export async function proxy(request: NextRequest) {
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(), payment=()",
   );
+  if (
+    /^(?:ops-portal|account|checkout|order-success|track-order)(?:\/|$)/.test(
+      pathname,
+    )
+  ) {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+    response.headers.set("Cache-Control", "private, no-store");
+  }
   if (!dev)
     response.headers.set(
       "Strict-Transport-Security",

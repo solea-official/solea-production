@@ -53,6 +53,13 @@ import {
   resetCustomerPassword,
 } from "@/server/customer-auth";
 import { customerApi } from "@/server/customer-api";
+import {
+  beginEnrollment,
+  enroll,
+  mfaStatus,
+  regenerateRecovery,
+  verifyMfa,
+} from "@/server/admin-mfa";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function handler(
@@ -138,9 +145,49 @@ async function handler(
       csrf(req, s);
       const d = loginSchema.parse(await body());
       const next = await login(req, d.email, d.password);
-      const response = result({ ok: true, csrf: sign(next.raw) });
+      const response = result({ ok: true, challenge: "mfa", csrf: sign(next.raw) });
       setSession(response, next);
       return response;
+    }
+    if (endpoint === "auth/mfa" && method === "GET") {
+      await rate(req, "admin-mfa-status", 30, 300);
+      return result(await mfaStatus(req));
+    }
+    if (endpoint === "auth/mfa/setup" && method === "GET") {
+      await rate(req, "admin-mfa-setup", 10, 300);
+      return result(await beginEnrollment(req));
+    }
+    if (endpoint === "auth/mfa/enroll" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      const data = z.object({ code: z.string().regex(/^\d{6}$/) }).strict().parse(await body());
+      const verified = await enroll(req, data.code);
+      const response = result({ ok: true, recoveryCodes: verified.recoveryCodes, csrf: sign(verified.next.raw) });
+      setSession(response, verified.next);
+      return response;
+    }
+    if (endpoint === "auth/mfa/verify" && method === "POST") {
+      const s = await session(req);
+      csrf(req, s);
+      const data = z
+        .object({
+          code: z.string().regex(/^\d{6}$/).optional(),
+          recoveryCode: z.string().trim().min(8).max(32).optional(),
+        })
+        .strict()
+        .refine((value) => Number(!!value.code) + Number(!!value.recoveryCode) === 1)
+        .parse(await body());
+      const verified = await verifyMfa(req, data);
+      const response = result({ ok: true, csrf: sign(verified.next.raw) });
+      setSession(response, verified.next);
+      return response;
+    }
+    if (endpoint === "auth/mfa/recovery" && method === "POST") {
+      const data = z
+        .object({ password: z.string().min(1).max(72), code: z.string().regex(/^\d{6}$/) })
+        .strict()
+        .parse(await body());
+      return result(await regenerateRecovery(req, data.password, data.code));
     }
     if (endpoint === "auth/logout" && method === "POST") {
       const s = await session(req);
@@ -182,7 +229,7 @@ async function handler(
           await sendEmail(
             d.email,
             "SOLÉA — Password reset",
-            config().APP_URL + "/admin?reset=" + value,
+            config().APP_URL + "/ops-portal?reset=" + value,
             "reset:" + hash(value),
           );
         } catch {
@@ -210,7 +257,7 @@ async function handler(
         ).rows[0];
         requireCondition(r, 400, "INVALID_RESET");
         await db.query("UPDATE admin_users SET password_hash=$1 WHERE id=$2", [
-          await bcrypt.hash(d.password, 12),
+          await bcrypt.hash(d.password, 14),
           r.admin_id,
         ]);
         await db.query(
@@ -218,7 +265,7 @@ async function handler(
           [r.admin_id],
         );
         await db.query(
-          "UPDATE sessions SET expires_at=now() WHERE admin_id=$1",
+          "UPDATE sessions SET expires_at=now() WHERE admin_id=$1 OR pending_admin_id=$1",
           [r.admin_id],
         );
         await audit(

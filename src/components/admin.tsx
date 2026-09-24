@@ -17,7 +17,10 @@ export function Login() {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [forgot, setForgot] = useState(false),
-    [done, setDone] = useState(false);
+    [done, setDone] = useState(false),
+    [mfa, setMfa] = useState<"" | "enroll" | "totp">(""),
+    [setup, setSetup] = useState<{ qr: string; manualKey: string } | null>(null),
+    [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   return (
     <section className="admin-login section wrap">
       <div className="panel">
@@ -26,6 +29,8 @@ export function Login() {
         <h1>
           {reset
             ? t("Reset password", "تعيين كلمة مرور جديدة")
+            : mfa
+              ? t("Two-factor verification", "التحقق بخطوتين")
             : forgot
               ? t("Forgot password", "نسيت كلمة المرور")
               : t("Welcome back.", "أهلًا بعودتك.")}
@@ -37,7 +42,23 @@ export function Login() {
             setError("");
             const f = Object.fromEntries(new FormData(e.currentTarget));
             try {
-              if (reset) {
+              if (mfa) {
+                const response = await api<{ recoveryCodes?: string[] }>(
+                  mfa === "enroll" ? "auth/mfa/enroll" : "auth/mfa/verify",
+                  "POST",
+                  f.recoveryCode
+                    ? { recoveryCode: f.recoveryCode }
+                    : { code: f.code },
+                );
+                if (response.recoveryCodes?.length) {
+                  setRecoveryCodes(response.recoveryCodes);
+                  setSetup(null);
+                  setDone(true);
+                } else {
+                  router.push("/ops-portal/dashboard");
+                  router.refresh();
+                }
+              } else if (reset) {
                 await api("auth/reset", "POST", {
                   token: reset,
                   password: f.password,
@@ -48,8 +69,10 @@ export function Login() {
                 setDone(true);
               } else {
                 await api("auth/login", "POST", f);
-                router.push("/admin/dashboard");
-                router.refresh();
+                const status = await api<{ challenge: "enroll" | "totp" }>("auth/mfa");
+                setMfa(status.challenge);
+                if (status.challenge === "enroll")
+                  setSetup(await api<{ qr: string; manualKey: string }>("auth/mfa/setup"));
               }
             } catch (e) {
               setError((e as Error).message);
@@ -58,7 +81,7 @@ export function Login() {
             }
           }}
         >
-          {!reset && (
+          {!reset && !mfa && (
             <label>
               {t("Email", "البريد الإلكتروني")}
               <input
@@ -71,7 +94,7 @@ export function Login() {
               />
             </label>
           )}
-          {(!forgot || reset) && (
+          {(!forgot || reset) && !mfa && (
             <label>
               {t("Password", "كلمة المرور")}
               <input
@@ -93,16 +116,26 @@ export function Login() {
               )}
             </p>
           )}
-          <button className="button full" disabled={busy}>
+          {mfa && setup && (
+            <div className="mfa-setup">
+              <img src={setup.qr} alt={t("Authenticator setup QR code", "رمز إعداد تطبيق المصادقة")} width="240" height="240" />
+              <p className="small">{t("Scan with your authenticator app, or enter this key manually:", "امسح الرمز بتطبيق المصادقة أو أدخل المفتاح يدويًا:")}</p>
+              <code dir="ltr">{setup.manualKey}</code>
+            </div>
+          )}
+          {mfa && !done && <><label>{t("Authenticator code", "رمز تطبيق المصادقة")}<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required={mfa === "enroll"} dir="ltr" /></label>{mfa === "totp" && <label>{t("Or recovery code", "أو رمز الاسترداد")}<input name="recoveryCode" autoComplete="one-time-code" minLength={8} maxLength={32} dir="ltr" /></label>}</>}
+          {(!mfa || !done) && <button className="button full" disabled={busy}>
             {t(
-              reset ? "Update password" : forgot ? "Request reset" : "Sign in",
+              mfa ? "Verify" : reset ? "Update password" : forgot ? "Request reset" : "Sign in",
               reset
                 ? "تحديث كلمة المرور"
+                : mfa
+                  ? "تحقق"
                 : forgot
                   ? "طلب إعادة التعيين"
                   : "تسجيل الدخول",
             )}
-          </button>
+          </button>}
         </form>
         {done && (
           <p className="notice">
@@ -117,6 +150,7 @@ export function Login() {
                 )}
           </p>
         )}
+        {recoveryCodes.length > 0 && <div className="notice"><strong>{t("Save these recovery codes now. They will not be shown again.", "احفظ رموز الاسترداد الآن. لن تظهر مرة أخرى.")}</strong><ul>{recoveryCodes.map((code) => <li key={code}><code dir="ltr">{code}</code></li>)}</ul><button className="button" onClick={() => { router.push("/ops-portal/dashboard"); router.refresh(); }}>{t("Continue", "متابعة")}</button></div>}
         {error && <ErrorMessage code={error} />}
         <button
           className="text-link"
@@ -145,6 +179,7 @@ const sections = [
   ["jobs", "Integration jobs", "مهام التكامل", "settings"],
   ["users", "Admin users", "المسؤولون", "users"],
   ["audit", "Audit log", "سجل التدقيق", "audit"],
+  ["security", "Security", "الأمان", "users"],
 ];
 export function Admin({
   path,
@@ -200,7 +235,7 @@ export function Admin({
             .filter((x) => !x[3] || user.permissions.includes(x[3]))
             .map(([key, en, ar]) => (
               <Link
-                href={"/admin/" + key}
+                href={"/ops-portal/" + key}
                 key={key}
                 aria-current={section === key ? "page" : undefined}
               >
@@ -212,7 +247,7 @@ export function Admin({
           className="text-link"
           onClick={async () => {
             await api("auth/logout", "POST");
-            router.push("/admin");
+            router.push("/ops-portal");
             router.refresh();
           }}
         >
@@ -228,7 +263,7 @@ export function Admin({
             )}
           </h1>
           {section === "products" && !id && (
-            <Link className="button" href="/admin/products/new">
+            <Link className="button" href="/ops-portal/products/new">
               {t("Add product", "إضافة منتج")}
             </Link>
           )}
@@ -281,7 +316,7 @@ export function Admin({
                 id === "new" ? "POST" : "PUT",
                 d,
               );
-              if (ok) router.push("/admin/products");
+              if (ok) router.push("/ops-portal/products");
             }}
           />
         )}
@@ -290,7 +325,7 @@ export function Admin({
             <DataTable
               rows={rows}
               columns={["name_en", "sku", "price", "stock", "status"]}
-              link={(r) => "/admin/products/" + r.id}
+              link={(r) => "/ops-portal/products/" + r.id}
             />
             <CategoryEditor />
           </>
@@ -320,7 +355,7 @@ export function Admin({
               "total",
               "created_at",
             ]}
-            link={(r) => "/admin/orders/" + r.id}
+            link={(r) => "/ops-portal/orders/" + r.id}
           />
         )}
         {section === "orders" && id && data !== null && (
@@ -340,7 +375,7 @@ export function Admin({
           <DataTable
             rows={rows}
             columns={["name", "email", "mobile", "reference", "created_at"]}
-            link={(r) => "/admin/orders/" + r.order_id}
+            link={(r) => "/ops-portal/orders/" + r.order_id}
           />
         )}
         {section === "audit" && (
@@ -355,6 +390,27 @@ export function Admin({
               "metadata",
             ]}
           />
+        )}
+        {section === "security" && data !== null && (
+          <div className="panel account-form">
+            <h2>{t("Two-factor authentication", "التحقق بخطوتين")}</h2>
+            <p className="notice success">
+              {t("Required and enabled for this privileged account.", "التحقق بخطوتين مطلوب ومفعّل لهذا الحساب ذي الصلاحيات.")}
+            </p>
+            <form onSubmit={async (event) => {
+              event.preventDefault();
+              setError("");
+              try {
+                const result = await api<{ recoveryCodes: string[] }>("auth/mfa/recovery", "POST", Object.fromEntries(new FormData(event.currentTarget)));
+                setData({ ...(data as Row), recoveryCodes: result.recoveryCodes });
+              } catch (cause) { setError((cause as Error).message); }
+            }}>
+              <label>{t("Current password", "كلمة المرور الحالية")}<input name="password" type="password" autoComplete="current-password" required maxLength={72} /></label>
+              <label>{t("Authenticator code", "رمز تطبيق المصادقة")}<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required /></label>
+              <button className="button">{t("Regenerate recovery codes", "إعادة إنشاء رموز الاسترداد")}</button>
+            </form>
+            {Array.isArray((data as Row).recoveryCodes) && <div className="notice"><strong>{t("Save these codes now. Previous codes are invalid.", "احفظ هذه الرموز الآن. الرموز السابقة أصبحت غير صالحة.")}</strong><ul>{((data as Row).recoveryCodes as string[]).map((code) => <li key={code}><code dir="ltr">{code}</code></li>)}</ul></div>}
+          </div>
         )}
         {section === "content" && data !== null && (
           <ContentEditor

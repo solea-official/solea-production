@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
+import { createCipheriv, createHmac, randomBytes } from "node:crypto";
 import { createServer } from "node:https";
 import { request as httpRequest } from "node:http";
 import { Pool } from "pg";
@@ -47,6 +47,7 @@ const env = {
   APP_URL: url,
   DATABASE_URL: "postgresql://postgres@127.0.0.1:55440/postgres",
   SESSION_SECRET: randomBytes(32).toString("hex"),
+  ADMIN_MFA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   TRUST_PROXY: "true",
   MEDIA_DIR: "./var/runtime/media",
   NEXT_TELEMETRY_DISABLED: "1",
@@ -71,10 +72,26 @@ await run("scripts/seed.ts");
 const pool = new Pool({ connectionString: env.DATABASE_URL, max: 1 });
 const password = "RuntimeA1" + randomBytes(12).toString("hex");
 const bcrypt = (await import("bcryptjs")).default;
-await pool.query(
-  "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner')",
+const runtimeAdmin = await pool.query(
+  "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner') RETURNING id",
   ["runtime@example.invalid", await bcrypt.hash(password, 4)],
 );
+const runtimeMfaSecret = randomBytes(20);
+const iv = randomBytes(12);
+const cipher = createCipheriv("aes-256-gcm", Buffer.from(env.ADMIN_MFA_ENCRYPTION_KEY, "hex"), iv);
+cipher.setAAD(Buffer.from(runtimeAdmin.rows[0].id));
+const encrypted = Buffer.concat([cipher.update(runtimeMfaSecret), cipher.final()]);
+await pool.query(
+  "UPDATE admin_users SET totp_ciphertext=$1,totp_enabled=true WHERE id=$2",
+  [Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64"), runtimeAdmin.rows[0].id],
+);
+const runtimeTotp = () => {
+  const message = Buffer.alloc(8);
+  message.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)));
+  const digest = createHmac("sha1", runtimeMfaSecret).update(message).digest();
+  const offset = digest[digest.length - 1] & 15;
+  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, "0");
+};
 const server = spawn(
   process.execPath,
   ["node_modules/next/dist/bin/next", "start", "-p", "3002", "-H", "127.0.0.1"],
@@ -148,7 +165,7 @@ try {
     "/privacy",
     "/terms",
     "/distance-selling",
-    "/admin",
+    "/ops-portal",
   ]) {
     const response = await page.goto(url + route);
     assert.equal(response?.status(), 200, route);
@@ -175,30 +192,42 @@ try {
   ).json();
   assert.equal(Object.hasOwn(publicProducts[0], "inci"), false);
   await page.goto(url + "/");
-  assert.equal(await page.locator('a[href="/admin"]').count(), 0);
+  assert.equal(await page.locator('a[href="/ops-portal"]').count(), 0);
   assert.equal(await page.locator(".social-grid > a").count(), 3);
-  await page.goto(url + "/admin/dashboard");
-  await page.waitForURL("**/admin");
+  assert.equal((await context.request.get(url + "/admin")).status(), 404);
+  await page.goto(url + "/ops-portal/dashboard");
+  await page.waitForURL("**/ops-portal");
   checks += 5;
   await page
     .getByLabel("Email", { exact: true })
     .fill("runtime@example.invalid");
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.waitForURL("**/admin/dashboard");
+  await page.getByLabel("Authenticator code").fill(runtimeTotp());
+  await page.getByRole("button", { name: "Verify", exact: true }).click();
+  await page.waitForURL("**/ops-portal/dashboard");
   await page.getByRole("heading", { name: "Overview" }).waitFor();
   checks++;
+  await page.goto(url + "/account/register");
+  await page.getByLabel("First name").fill("Runtime");
+  await page.getByLabel("Last name").fill("Customer");
+  await page.getByLabel("Email").fill("runtime-customer@example.invalid");
+  await page.getByLabel("Mobile").fill("01000000000");
+  await page.getByLabel("New password").fill("RuntimeCustomer9!");
+  await page.getByLabel("Confirm password").fill("RuntimeCustomer9!");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.waitForURL("**/account");
   const cookie = (await context.cookies()).find(
     (c) => c.name === "__Host-sol-session",
   );
   assert.ok(cookie?.secure && cookie.httpOnly && cookie.sameSite === "Lax");
-  await page.goto(url + "/admin/products/new");
+  await page.goto(url + "/ops-portal/products/new");
   await page.getByLabel("name en", { exact: true }).fill("SOLÉA Runtime Test");
   await page.getByLabel("name ar", { exact: true }).fill("منتج اختبار SOLÉA");
   await page.getByLabel("sku", { exact: true }).fill("RUNTIME-TEST");
   await page.getByLabel("slug", { exact: true }).fill("runtime-test");
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL("**/admin/products");
+  await page.waitForURL("**/ops-portal/products");
   checks++;
   await pool.query(
     'UPDATE store_settings SET enabled=true,shipping_zones=\'[{"governorate":"QA region","zone":"","fee":500,"active":true}]\'',
@@ -226,7 +255,7 @@ try {
   await page.getByLabel("Street address").fill("QA Street");
   await page.locator("input[name=acceptTerms]").check();
   await page.getByRole("button", { name: "Place order", exact: true }).click();
-  await page.waitForURL("**/order-success?id=*");
+  await page.waitForURL("**/order-success?orderId=*");
   await page.locator(".tracking-key").waitFor();
   checks++;
   await page.setViewportSize({ width: 390, height: 844 });

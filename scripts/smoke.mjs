@@ -17,7 +17,7 @@ for (const route of [
   "/returns",
   "/privacy",
   "/terms",
-  "/admin",
+  "/ops-portal",
   "/api/health",
   "/robots.txt",
   "/sitemap.xml",
@@ -36,6 +36,7 @@ for (const route of [
   checks++;
 }
 assert.equal((await fetch(new URL("/missing-page", base))).status, 404);
+assert.equal((await fetch(new URL("/admin", base), { redirect: "manual" })).status, 404);
 assert.equal((await fetch(new URL("/ingredients", base))).status, 404);
 assert.equal(
   (await (await fetch(new URL("/sitemap.xml", base))).text()).includes(
@@ -44,13 +45,13 @@ assert.equal(
   false,
 );
 assert.equal((await fetch(new URL("/api/admin/products", base))).status, 401);
-const admin = await fetch(new URL("/admin/dashboard", base), {
+const admin = await fetch(new URL("/ops-portal/dashboard", base), {
   redirect: "manual",
 });
 assert.ok([302, 303, 307, 308].includes(admin.status));
 console.log(
   JSON.stringify({
-    checks: checks + 3,
+    checks: checks + 4,
     scope: "HTTP route/header/auth smoke; does not submit orders",
   }),
 );

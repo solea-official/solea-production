@@ -23,3 +23,10 @@ export const publicPages: Record<string, string> = {
   "account/profile": "Profile",
   "account/security": "Account security",
 };
+
+export function resolveOrderSuccessId(
+  query: Pick<URLSearchParams, "get">,
+  safeSessionFallback: string | null,
+) {
+  return query.get("orderId") || safeSessionFallback;
+}

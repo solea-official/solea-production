@@ -2,10 +2,12 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
+import { resolveOrderSuccessId } from "../src/lib/routes";
 import {
   auth,
   clearRates,
   client,
+  customerClient,
   db,
   engine,
   request,
@@ -122,7 +124,7 @@ function callbackHmac(data: ReturnType<typeof callback>) {
 }
 
 async function createPaymobOrder(extra: Record<string, unknown> = {}) {
-  const customer = await client();
+  const customer = await customerClient();
   assert.equal(
     (await request(customer, "cart", "POST", { productId, quantity: 1 }))
       .status,
@@ -263,6 +265,10 @@ test("checkout creates a hosted intention from database-authoritative totals", a
   assert.equal(lastIntention?.amount, 11_500);
   assert.equal(lastIntention?.currency, "EGP");
   assert.equal(lastIntention?.special_reference, order.reference);
+  assert.equal(
+    lastIntention?.redirection_url,
+    `http://localhost:3000/order-success?orderId=${encodeURIComponent(order.id)}`,
+  );
   assert.deepEqual(lastIntention?.payment_methods, [integrationId]);
   const row = (
     await db.query(
@@ -277,6 +283,17 @@ test("checkout creates a hosted intention from database-authoritative totals", a
   assert.equal(row.status, "pending");
   assert.ok(row.provider_id);
   assert.ok(row.provider_order_id);
+});
+
+test("Paymob order success uses SOLÉA orderId and ignores provider transaction id", () => {
+  const withBoth = new URLSearchParams({
+    orderId: "solea-order-id",
+    id: "paymob-transaction-id",
+  });
+  assert.equal(resolveOrderSuccessId(withBoth, "safe-session-order"), "solea-order-id");
+  const providerOnly = new URLSearchParams({ id: "paymob-transaction-id" });
+  assert.equal(resolveOrderSuccessId(providerOnly, "safe-session-order"), "safe-session-order");
+  assert.equal(resolveOrderSuccessId(providerOnly, null), null);
 });
 
 test("Paymob items exactly match subtotal, shipping and discount combinations", async () => {

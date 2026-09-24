@@ -59,10 +59,11 @@ function adopt(target: Client, response: Response, body: { csrf: string }) {
 async function register(email: string, password: string, name: string) {
   const c = await client();
   const response = await request(c, "account/register", "POST", {
-    name,
+    firstName: name.split(" ")[0],
+    lastName: name.split(" ").slice(1).join(" ") || "Customer",
     email,
     password,
-    mobile: "",
+    mobile: "01000000000",
   });
   assert.equal(response.status, 201);
   const body = await response.json();
@@ -115,7 +116,8 @@ test("customer registration hashes at cost 14, rotates session, and rejects dupl
   const initial = await client();
   const originalCookie = initial.cookie;
   const response = await request(initial, "account/register", "POST", {
-    name: "Customer A",
+    firstName: "Customer",
+    lastName: "A",
     email: "customer-a@example.invalid",
     password: passwordA,
     mobile: "01000000000",
@@ -137,10 +139,11 @@ test("customer registration hashes at cost 14, rotates session, and rejects dupl
   assert.equal(
     (
       await request(duplicate, "account/register", "POST", {
-        name: "Duplicate",
+        firstName: "Duplicate",
+        lastName: "Customer",
         email: "customer-a@example.invalid",
         password: passwordA,
-        mobile: "",
+        mobile: "01000000000",
       })
     ).status,
     409,
@@ -224,16 +227,17 @@ test("saved address CRUD enforces account ownership", async () => {
   assert.equal((await request(accountA, `account/addresses/${addressId}`, "PUT", { ...address, city: "Giza" })).status, 200);
 });
 
-test("guest and authenticated checkout coexist with explicit order ownership", async () => {
+test("checkout requires authentication and assigns explicit order ownership", async () => {
   const guest = await client();
   assert.equal((await request(guest, "cart", "POST", { productId, quantity: 1 })).status, 200);
   const guestCheckout = await request(guest, "checkout", "POST", checkout());
-  assert.equal(guestCheckout.status, 201);
-  guestOrder = await guestCheckout.json();
-  assert.equal(
-    (await db.query("SELECT account_id FROM orders WHERE id=$1", [guestOrder.id])).rows[0].account_id,
-    null,
-  );
+  assert.equal(guestCheckout.status, 401);
+
+  assert.equal((await request(accountB, "cart", "POST", { productId, quantity: 1 })).status, 200);
+  const historical = await request(accountB, "checkout", "POST", checkout());
+  assert.equal(historical.status, 201);
+  guestOrder = await historical.json();
+  await db.query("UPDATE orders SET account_id=NULL WHERE id=$1", [guestOrder.id]);
 
   assert.equal((await request(accountA, "cart", "POST", { productId, quantity: 2 })).status, 200);
   const accountCheckout = await request(accountA, "checkout", "POST", checkout("instapay"));

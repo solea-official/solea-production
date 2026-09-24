@@ -8,6 +8,7 @@ import {
   engine,
   request,
   client,
+  customerClient,
   auth,
   clearRates,
   Client,
@@ -74,8 +75,8 @@ before(async () => {
     );
   owner = await auth("owner@example.invalid", secretPassword);
   support = await auth("support@example.invalid", secretPassword);
-  guest = await client();
-  other = await client();
+  guest = await customerClient("security-customer@example.invalid");
+  other = await customerClient("security-other@example.invalid");
   await clearRates();
   const r = await request(owner, "admin/products", "POST", productData());
   assert.equal(r.status, 200);
@@ -628,6 +629,14 @@ test("password reset token is hashed, single-use, and revokes sessions", async (
     password: "Changed" + randomBytes(10).toString("hex") + "A1",
   };
   assert.equal((await request(c, "auth/reset", "POST", d)).status, 200);
+  assert.equal(
+    bcrypt.getRounds(
+      (
+        await db.query("SELECT password_hash FROM admin_users WHERE id=$1", [u.id])
+      ).rows[0].password_hash,
+    ),
+    14,
+  );
   assert.equal((await request(c, "auth/reset", "POST", d)).status, 400);
   assert.equal((await request(support, "admin/orders")).status, 401);
 });

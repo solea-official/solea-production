@@ -97,7 +97,7 @@ while (running) {
           await sendEmail(
             process.env.ADMIN_NOTIFICATION_EMAIL,
             "SOLÉA — New order",
-            o.reference + "\n" + process.env.APP_URL + "/admin/orders",
+            o.reference + "\n" + process.env.APP_URL + "/ops-portal/orders",
             job.dedupe_key + ":admin",
           );
       }
