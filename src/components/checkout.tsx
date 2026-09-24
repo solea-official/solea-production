@@ -894,7 +894,7 @@ export function OrderSuccess() {
   const [order, setOrder] = useState<OrderView | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
-    const id = query.get("id") || sessionStorage.getItem("last-order");
+    const id = query.get("orderId") || sessionStorage.getItem("last-order");
     if (!id) {
       setError("ORDER_NOT_FOUND");
       return;

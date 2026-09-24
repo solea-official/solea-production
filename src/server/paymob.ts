@@ -105,7 +105,7 @@ export async function createPaymobIntention(order: PaymobOrder) {
         special_reference: order.reference,
         expiration: 1800,
         notification_url: `${config().APP_URL}/api/webhooks/paymob`,
-        redirection_url: `${config().APP_URL}/order-success`,
+        redirection_url: `${config().APP_URL}/order-success?orderId=${encodeURIComponent(order.id)}`,
       }),
       signal: AbortSignal.timeout(15_000),
       redirect: "error",
