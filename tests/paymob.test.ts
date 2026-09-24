@@ -121,14 +121,19 @@ function callbackHmac(data: ReturnType<typeof callback>) {
   return createHmac("sha512", secret).update(values).digest("hex");
 }
 
-async function createPaymobOrder() {
+async function createPaymobOrder(extra: Record<string, unknown> = {}) {
   const customer = await client();
   assert.equal(
     (await request(customer, "cart", "POST", { productId, quantity: 1 }))
       .status,
     200,
   );
-  const response = await request(customer, "checkout", "POST", checkoutData());
+  const response = await request(
+    customer,
+    "checkout",
+    "POST",
+    checkoutData(extra),
+  );
   if (response.status !== 201)
     assert.fail(
       `Paymob checkout failed: ${response.status} ${await response.text()}`,
@@ -272,6 +277,119 @@ test("checkout creates a hosted intention from database-authoritative totals", a
   assert.equal(row.status, "pending");
   assert.ok(row.provider_id);
   assert.ok(row.provider_order_id);
+});
+
+test("Paymob items exactly match subtotal, shipping and discount combinations", async () => {
+  const discountOnlyCode = `PM-${randomBytes(5).toString("hex").toUpperCase()}`;
+  const discountShippingCode = `PM-${randomBytes(5).toString("hex").toUpperCase()}`;
+  await db.query(
+    `INSERT INTO coupons(code,type,value,active,usage_limit,minimum)
+     VALUES($1,'fixed',1000,true,1,0),($2,'fixed',1000,true,1,0)`,
+    [discountOnlyCode, discountShippingCode],
+  );
+
+  const cases = [
+    {
+      name: "product subtotal only",
+      shipping: 0,
+      coupon: "",
+      subtotal: 10_000,
+      discount: 0,
+      total: 10_000,
+    },
+    {
+      name: "subtotal plus shipping",
+      shipping: 1_500,
+      coupon: "",
+      subtotal: 10_000,
+      discount: 0,
+      total: 11_500,
+    },
+    {
+      name: "subtotal minus discount",
+      shipping: 0,
+      coupon: discountOnlyCode,
+      subtotal: 10_000,
+      discount: 1_000,
+      total: 9_000,
+    },
+    {
+      name: "subtotal minus discount plus shipping",
+      shipping: 1_500,
+      coupon: discountShippingCode,
+      subtotal: 10_000,
+      discount: 1_000,
+      total: 10_500,
+    },
+  ];
+
+  for (const scenario of cases) {
+    await db.query(
+      "UPDATE store_settings SET shipping_zones=$1 WHERE id=1",
+      [
+        JSON.stringify([
+          {
+            governorate: "Cairo",
+            zone: "Greater Cairo",
+            fee: scenario.shipping,
+            active: true,
+          },
+        ]),
+      ],
+    );
+    lastIntention = null;
+    const order = await createPaymobOrder({ coupon: scenario.coupon });
+    assert.ok(lastIntention, `${scenario.name}: intention was not sent`);
+    const payload = lastIntention as {
+      amount: number;
+      items: {
+        name: string;
+        description: string;
+        amount: number;
+        quantity: number;
+      }[];
+    };
+    const itemTotal = payload.items.reduce(
+      (total, item) => total + item.amount * item.quantity,
+      0,
+    );
+    assert.equal(payload.amount, scenario.total, scenario.name);
+    assert.equal(itemTotal, payload.amount, scenario.name);
+    assert.deepEqual(payload.items, [
+      {
+        name: "SOLÉA Order",
+        description: `Order ${order.reference}`,
+        amount: scenario.total,
+        quantity: 1,
+      },
+    ]);
+    const saved = (
+      await db.query(
+        "SELECT subtotal,discount,shipping,total FROM orders WHERE id=$1",
+        [order.id],
+      )
+    ).rows[0];
+    assert.deepEqual(saved, {
+      subtotal: scenario.subtotal,
+      discount: scenario.discount,
+      shipping: scenario.shipping,
+      total: scenario.total,
+    });
+  }
+
+  await db.query(
+    "UPDATE store_settings SET shipping_zones=$1 WHERE id=1",
+    [
+      JSON.stringify([
+        {
+          governorate: "Cairo",
+          zone: "Greater Cairo",
+          fee: 1_500,
+          active: true,
+        },
+      ]),
+    ],
+  );
 });
 
 test("customer cannot submit or confirm Paymob status", async () => {

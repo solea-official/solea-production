@@ -65,6 +65,14 @@ export async function createPaymobIntention(order: PaymobOrder) {
     "INTEGRATION_NOT_CONFIGURED",
   );
   const names = order.customer.fullName.trim().split(/\s+/);
+  const items = [
+    {
+      name: "SOLÉA Order",
+      description: `Order ${order.reference}`,
+      amount: order.total,
+      quantity: 1,
+    },
+  ];
   let response: Response;
   try {
     response = await fetch(endpoint, {
@@ -78,7 +86,7 @@ export async function createPaymobIntention(order: PaymobOrder) {
         amount: order.total,
         currency: order.currency,
         payment_methods: settings.integrationIds,
-        items: order.items,
+        items,
         billing_data: {
           first_name: names[0] || order.customer.fullName,
           last_name:
