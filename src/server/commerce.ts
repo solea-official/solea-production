@@ -5,6 +5,7 @@ import { requireCondition } from "./config";
 import { Session, hash, sign } from "./security";
 import { randomUUID } from "node:crypto";
 import { manualPaymentSettings } from "./manual-payments";
+import { createPaymobIntention, paymobSettings } from "./paymob";
 
 type ShippingZone = {
   governorate: string;
@@ -13,10 +14,18 @@ type ShippingZone = {
   active: boolean;
 };
 
-function shippingFee(settings: Record<string, unknown>, governorate: string, net: number) {
+function shippingFee(
+  settings: Record<string, unknown>,
+  governorate: string,
+  net: number,
+) {
   const zones = (settings.shipping_zones || []) as ShippingZone[];
   const rate = zones.find((r) => r.active && r.governorate === governorate);
-  requireCondition(rate && Number.isInteger(rate.fee) && rate.fee >= 0, 409, "DELIVERY_UNAVAILABLE");
+  requireCondition(
+    rate && Number.isInteger(rate.fee) && rate.fee >= 0,
+    409,
+    "DELIVERY_UNAVAILABLE",
+  );
   const threshold = settings.free_shipping_threshold;
   return typeof threshold === "number" && threshold > 0 && net >= threshold
     ? 0
@@ -131,12 +140,14 @@ export async function checkout(
   s: Session,
   data: z.infer<typeof checkoutSchema>,
 ) {
-  return transaction(async (db) => {
+  const order = await transaction(async (db) => {
     await db.query("SELECT id FROM sessions WHERE id=$1 FOR UPDATE", [s.id]);
     const requestHash = hash(JSON.stringify(data));
     const prior = (
       await db.query(
-        "SELECT * FROM orders WHERE session_id=$1 AND idempotency_key=$2",
+        `SELECT o.*,p.checkout_url,p.status payment_status
+         FROM orders o JOIN payments p ON p.order_id=o.id
+         WHERE o.session_id=$1 AND o.idempotency_key=$2`,
         [s.id, data.idempotencyKey],
       )
     ).rows[0];
@@ -150,6 +161,8 @@ export async function checkout(
         id: prior.id,
         reference: prior.reference,
         trackingToken: sign("tracking:" + prior.id),
+        payment: prior.payment_method,
+        checkoutUrl: prior.checkout_url || undefined,
         reused: true,
       };
     }
@@ -163,6 +176,8 @@ export async function checkout(
     requireCondition(legal.rows[0].n === 4, 409, "POLICIES_NOT_READY");
     if (data.payment === "cod")
       requireCondition(settings.cod_enabled, 409, "PAYMENT_UNAVAILABLE");
+    else if (data.payment === "paymob")
+      requireCondition(paymobSettings().enabled, 503, "PAYMENT_UNAVAILABLE");
     else {
       const manual = manualPaymentSettings();
       requireCondition(
@@ -181,7 +196,11 @@ export async function checkout(
           )
         ).rows[0]
       : null;
-    requireCondition(!s.customer_account_id || account, 401, "CUSTOMER_LOGIN_REQUIRED");
+    requireCondition(
+      !s.customer_account_id || account,
+      401,
+      "CUSTOMER_LOGIN_REQUIRED",
+    );
     let delivery = {
       fullName: data.fullName,
       mobile: data.mobile,
@@ -272,7 +291,11 @@ export async function checkout(
       couponId = c.id;
       await db.query("UPDATE coupons SET used=used+1 WHERE id=$1", [c.id]);
     }
-    const fee = shippingFee(settings, delivery.governorate, subtotal - discount);
+    const fee = shippingFee(
+      settings,
+      delivery.governorate,
+      subtotal - discount,
+    );
     const customer = (
       await db.query(
         "INSERT INTO customers(name,email,mobile) VALUES($1,$2,$3) RETURNING id",
@@ -298,7 +321,9 @@ export async function checkout(
         "SOL-" + randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase(),
       trackingToken = sign("tracking:" + id);
     await db.query(
-      `INSERT INTO orders(id,reference,session_id,customer_id,address_id,account_id,tracking_hash,idempotency_key,request_hash,status,payment_method,subtotal,discount,shipping,total,coupon_id,notes,locale,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,NULL)`,
+      `INSERT INTO orders(id,reference,session_id,customer_id,address_id,account_id,tracking_hash,idempotency_key,request_hash,status,payment_method,subtotal,discount,shipping,total,coupon_id,notes,locale,expires_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,
+       CASE WHEN $10='paymob' THEN now()+interval '30 minutes' ELSE NULL END)`,
       [
         id,
         reference,
@@ -342,16 +367,23 @@ export async function checkout(
       [
         id,
         subtotal - discount + fee,
-        data.payment === "cod" ? "cod_pending" : "awaiting_confirmation",
-        data.payment === "cod" ? null : data.transferReference || null,
+        data.payment === "cod"
+          ? "cod_pending"
+          : data.payment === "paymob"
+            ? "pending"
+            : "awaiting_confirmation",
+        ["instapay", "vodafone_cash"].includes(data.payment)
+          ? data.transferReference || null
+          : null,
       ],
     );
     await db.query("INSERT INTO shipments(order_id) VALUES($1)", [id]);
     if (account && data.saveAddress && !data.savedAddressId) {
       const count = (
-        await db.query("SELECT count(*)::int n FROM saved_addresses WHERE account_id=$1", [
-          account.id,
-        ])
+        await db.query(
+          "SELECT count(*)::int n FROM saved_addresses WHERE account_id=$1",
+          [account.id],
+        )
       ).rows[0].n;
       requireCondition(count < 20, 409, "ADDRESS_LIMIT");
       await db.query(
@@ -378,8 +410,98 @@ export async function checkout(
     await audit(db, null, "order.created", "orders", id, {
       payment: data.payment,
     });
-    return { id, reference, trackingToken, reused: false };
+    return {
+      id,
+      reference,
+      trackingToken,
+      payment: data.payment,
+      reused: false,
+      paymob:
+        data.payment === "paymob"
+          ? {
+              id,
+              reference,
+              total: subtotal - discount + fee,
+              currency: "EGP" as const,
+              customer: delivery,
+              items: items.map((item) => ({
+                name: item.name_en,
+                description: `${item.name_en} · ${item.volume}`,
+                amount: item.price,
+                quantity: item.quantity,
+              })),
+            }
+          : null,
+    };
   });
+  if (order.payment !== "paymob") return order;
+  requireCondition(
+    order.checkoutUrl || (!order.reused && order.paymob),
+    409,
+    "PAYMENT_SESSION_UNAVAILABLE",
+  );
+  if (order.checkoutUrl) return order;
+  try {
+    const intent = await createPaymobIntention(order.paymob!);
+    await transaction(async (db) => {
+      const current = (
+        await db.query(
+          `SELECT o.status,p.status payment_status,p.provider_id
+           FROM orders o JOIN payments p ON p.order_id=o.id
+           WHERE o.id=$1 FOR UPDATE OF o,p`,
+          [order.id],
+        )
+      ).rows[0];
+      requireCondition(
+        current?.status === "pending" &&
+          current.payment_status === "pending" &&
+          !current.provider_id,
+        409,
+        "INVALID_TRANSITION",
+      );
+      await db.query(
+        `UPDATE payments
+         SET provider_id=$1,provider_order_id=$2,checkout_url=$3,updated_at=now()
+         WHERE order_id=$4`,
+        [
+          intent.providerId,
+          intent.providerOrderId,
+          intent.checkoutUrl,
+          order.id,
+        ],
+      );
+      await audit(db, null, "payment.paymob-created", "orders", order.id, {
+        providerOrderId: intent.providerOrderId,
+      });
+    });
+    return { ...order, checkoutUrl: intent.checkoutUrl, paymob: undefined };
+  } catch (error) {
+    await transaction(async (db) => {
+      const current = (
+        await db.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [
+          order.id,
+        ])
+      ).rows[0];
+      if (current?.status === "pending") {
+        await releaseStock(db, current);
+        await db.query(
+          "UPDATE orders SET status='cancelled',expires_at=NULL,updated_at=now() WHERE id=$1",
+          [order.id],
+        );
+        await db.query(
+          "UPDATE payments SET status='failed',updated_at=now() WHERE order_id=$1",
+          [order.id],
+        );
+        if (current.coupon_id)
+          await db.query(
+            "UPDATE coupons SET used=GREATEST(used-1,0) WHERE id=$1",
+            [current.coupon_id],
+          );
+        await audit(db, null, "payment.paymob-init-failed", "orders", order.id);
+      }
+    });
+    throw error;
+  }
 }
 export async function releaseStock(
   db: DB,
@@ -401,6 +523,41 @@ export async function releaseStock(
     order.id,
   ]);
 }
+export async function expirePendingPayments(limit = 30) {
+  requireCondition(
+    Number.isInteger(limit) && limit >= 1 && limit <= 100,
+    400,
+    "INVALID_INPUT",
+  );
+  return transaction(async (db) => {
+    const expired = (
+      await db.query(
+        `SELECT * FROM orders
+         WHERE status='pending' AND payment_method IN ('card','paymob') AND expires_at<now()
+         ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $1`,
+        [limit],
+      )
+    ).rows;
+    for (const order of expired) {
+      await releaseStock(db, order);
+      await db.query(
+        "UPDATE orders SET status='cancelled',expires_at=NULL,updated_at=now() WHERE id=$1",
+        [order.id],
+      );
+      await db.query(
+        "UPDATE payments SET status='failed',updated_at=now() WHERE order_id=$1 AND status='pending'",
+        [order.id],
+      );
+      if (order.coupon_id)
+        await db.query(
+          "UPDATE coupons SET used=GREATEST(used-1,0) WHERE id=$1",
+          [order.coupon_id],
+        );
+      await audit(db, null, "payment.reservation-expired", "orders", order.id);
+    }
+    return expired.length;
+  });
+}
 export async function changeOrder(actor: string, id: string, status: string) {
   return transaction(async (db) => {
     const o = (
@@ -411,7 +568,10 @@ export async function changeOrder(actor: string, id: string, status: string) {
     ).rows[0];
     requireCondition(o, 404, "ORDER_NOT_FOUND");
     const allowed: Record<string, string[]> = {
-      pending: o.payment_method === "cod" ? ["processing", "cancelled"] : ["cancelled"],
+      pending:
+        o.payment_method === "cod"
+          ? ["processing", "cancelled"]
+          : ["cancelled"],
       paid: ["processing"],
       processing:
         o.payment_status === "paid" ? ["shipped"] : ["shipped", "cancelled"],
@@ -427,7 +587,11 @@ export async function changeOrder(actor: string, id: string, status: string) {
     );
     if (status === "cancelled") {
       await releaseStock(db, o);
-      if (["cod_pending", "awaiting_confirmation"].includes(o.payment_status))
+      if (
+        ["pending", "cod_pending", "awaiting_confirmation"].includes(
+          o.payment_status,
+        )
+      )
         await db.query(
           "UPDATE payments SET status='cancelled',updated_at=now() WHERE order_id=$1",
           [id],
@@ -442,7 +606,12 @@ export async function changeOrder(actor: string, id: string, status: string) {
       to: status,
     });
     if (process.env.EMAIL_ENABLED === "true")
-      await enqueue(db, "status-email", id, "status-email:" + id + ":" + status);
+      await enqueue(
+        db,
+        "status-email",
+        id,
+        "status-email:" + id + ":" + status,
+      );
   });
 }
 export async function quote(s: Session, governorate: string, code: string) {

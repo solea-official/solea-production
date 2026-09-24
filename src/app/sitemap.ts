@@ -5,7 +5,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     "",
     "/products",
-    "/ingredients",
     "/about",
     "/contact",
     "/faq",
@@ -13,6 +12,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/returns",
     "/privacy",
     "/terms",
+    "/distance-selling",
     ...(await products()).map((p) => "/products/" + p.slug),
   ].map((p) => ({ url: process.env.APP_URL + p }));
 }

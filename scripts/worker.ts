@@ -1,5 +1,5 @@
 import { pool, transaction } from "../src/server/db";
-import { releaseStock } from "../src/server/commerce";
+import { expirePendingPayments } from "../src/server/commerce";
 import { adapter, sendEmail } from "../src/server/integrations";
 import { sign } from "../src/server/security";
 import { z } from "zod";
@@ -11,20 +11,7 @@ process.on("SIGINT", () => {
   running = false;
 });
 while (running) {
-  await transaction(async (db) => {
-    const expired = (
-      await db.query(
-        "SELECT * FROM orders WHERE status='pending' AND payment_method='card' AND expires_at<now() ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 30",
-      )
-    ).rows;
-    for (const o of expired) {
-      await releaseStock(db, o);
-      await db.query(
-        "UPDATE orders SET status='cancelled',updated_at=now() WHERE id=$1",
-        [o.id],
-      );
-    }
-  });
+  await expirePendingPayments();
   const job = await transaction(async (db) => {
     const r = (
       await db.query(

@@ -16,7 +16,6 @@ export type Product = {
   usage_ar: string;
   warnings_en: string;
   warnings_ar: string;
-  inci: string;
   seo_title: string;
   seo_description: string;
   images: {
@@ -49,6 +48,7 @@ export type Settings = {
   free_shipping_threshold: number | null;
   instapay: { enabled: boolean; account: string; qrUrl: string };
   vodafoneCash: { enabled: boolean; number: string; qrUrl: string };
+  paymob: { enabled: boolean };
 };
 export type StoreData = {
   settings: Settings;

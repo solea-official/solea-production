@@ -6,15 +6,15 @@ The existing implementation was continued incrementally. The delivered source co
 
 This is a record of performed checks, not a security certification or a claim that the application is ready for unrestricted live trading.
 
-| Verification already completed | Result |
-|---|---|
-| `npm test` — unit, database/API, authorization, commerce and adapter tests | 37 tests passed; 0 failed/skipped |
-| `npm run test:e2e` — real production React components and API handlers through intercepted browser requests | 52 checks passed; Chromium, desktop 1440px, tablet 768px, mobile 390px; no recorded page errors |
+| Verification already completed                                                                                              | Result                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test` — unit, database/API, authorization, commerce and adapter tests                                                  | 37 tests passed; 0 failed/skipped                                                                                                               |
+| `npm run test:e2e` — real production React components and API handlers through intercepted browser requests                 | 52 checks passed; Chromium, desktop 1440px, tablet 768px, mobile 390px; no recorded page errors                                                 |
 | `npm run test:runtime` — actual production Next server over local HTTPS, real cookies, PostgreSQL wire connection to PGlite | 23 checks passed; routes, headers, 404, protected admin, login, product creation, cart, COD order and Arabic switching; no recorded page errors |
-| `npm run typecheck` and `npm run lint` | Passed |
-| `npm run build` | Passed after the final application changes; production build artifact present |
-| Repository secret-pattern scan | No findings in scanned source/configuration; environment values are placeholders or generated during setup/tests |
-| `npm audit --json` — final confirmation | 0 reported vulnerabilities across 490 audited dependencies |
+| `npm run typecheck` and `npm run lint`                                                                                      | Passed                                                                                                                                          |
+| `npm run build`                                                                                                             | Passed after the final application changes; production build artifact present                                                                   |
+| Repository secret-pattern scan                                                                                              | No findings in scanned source/configuration; environment values are placeholders or generated during setup/tests                                |
+| `npm audit --json` — final confirmation                                                                                     | 0 reported vulnerabilities across 490 audited dependencies                                                                                      |
 
 The final handoff did not repeat these full passing suites. Only packaging, documentation/environment completeness and dependency-audit confirmation were finalized. Browser/runtime tests preceded the final bcrypt byte-length restriction; that final change was covered by a dedicated regression test, the passing 37-test run, type/lint checks and a successful production rebuild.
 
@@ -32,23 +32,23 @@ The final handoff did not repeat these full passing suites. Only packaging, docu
 
 ## Findings, remediation and retests
 
-| Finding | Severity | Remediation | Retest |
-|---|---|---|---|
-| Payment arriving after an expired/cancelled card reservation had no refund path | High, commerce integrity | Record capture, leave order cancelled, queue one idempotent full refund; do not re-reserve stock | Passed |
-| bcrypt character limit did not enforce its UTF-8 byte limit | Medium | Reject password input above 72 UTF-8 bytes at creation/reset/login; bootstrap password prompt hidden | Regression passed; build passed |
-| Cart add replaced the current quantity | Medium, functional | Add through a serialized transaction; retain PUT for setting/removing quantity | Passed |
-| No operator action to record collected COD | Medium, operational | Owner-only delivered-COD collection, audited and single transition | Passed |
-| Unknown admin resource returned generic 500; malformed UTF-8 was not rejected explicitly | Low | Typed 404 error and fatal UTF-8 decoding with bounded input | Passed |
-| Streamed missing-page response returned 200; rewrite failed behind local HTTPS proxy | Low | Explicit branded 404 response with security headers; validate missing product slugs | Production HTTPS and proxy checks passed |
-| robots sitemap URL could be captured at build time | Low | Dynamic robots generation using runtime APP_URL | Build/runtime route review passed |
-| Failed integration jobs required an operational retry path | Medium, operational | Owner-only retry endpoint/UI with audit trail | Passed |
-| Test browser disabled web security and omitted Origin; test HTML missed UTF-8 charset | Test harness only | Restore Chromium web security and set UTF-8; production CSRF validation left strict | Browser login/checkout and RTL retested successfully |
-| Build cache/test bundle polluted lint scope; runtime TypeScript config risked dev-only tooling | Tooling | Ignore generated artifacts, use runtime JS Next config, retain tsx as production script dependency | Lint/typecheck/build passed |
+| Finding                                                                                        | Severity                 | Remediation                                                                                          | Retest                                               |
+| ---------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Payment arriving after an expired/cancelled card reservation had no refund path                | High, commerce integrity | Record capture, leave order cancelled, queue one idempotent full refund; do not re-reserve stock     | Passed                                               |
+| bcrypt character limit did not enforce its UTF-8 byte limit                                    | Medium                   | Reject password input above 72 UTF-8 bytes at creation/reset/login; bootstrap password prompt hidden | Regression passed; build passed                      |
+| Cart add replaced the current quantity                                                         | Medium, functional       | Add through a serialized transaction; retain PUT for setting/removing quantity                       | Passed                                               |
+| No operator action to record collected COD                                                     | Medium, operational      | Owner-only delivered-COD collection, audited and single transition                                   | Passed                                               |
+| Unknown admin resource returned generic 500; malformed UTF-8 was not rejected explicitly       | Low                      | Typed 404 error and fatal UTF-8 decoding with bounded input                                          | Passed                                               |
+| Streamed missing-page response returned 200; rewrite failed behind local HTTPS proxy           | Low                      | Explicit branded 404 response with security headers; validate missing product slugs                  | Production HTTPS and proxy checks passed             |
+| robots sitemap URL could be captured at build time                                             | Low                      | Dynamic robots generation using runtime APP_URL                                                      | Build/runtime route review passed                    |
+| Failed integration jobs required an operational retry path                                     | Medium, operational      | Owner-only retry endpoint/UI with audit trail                                                        | Passed                                               |
+| Test browser disabled web security and omitted Origin; test HTML missed UTF-8 charset          | Test harness only        | Restore Chromium web security and set UTF-8; production CSRF validation left strict                  | Browser login/checkout and RTL retested successfully |
+| Build cache/test bundle polluted lint scope; runtime TypeScript config risked dev-only tooling | Tooling                  | Ignore generated artifacts, use runtime JS Next config, retain tsx as production script dependency   | Lint/typecheck/build passed                          |
 
 ## Remaining production limitations and blockers
 
-1. **Payment/Bosta/email are generic authenticated HTTPS bridge contracts, not completed native provider integrations. Credentials alone are insufficient.** Implement/approve the selected provider mappings, verify native webhook signatures at that boundary, and run sandbox creation, payment/refund, delivery and email UAT. Application HMAC tests do not verify any provider's native signature format.
-2. No production credentials were supplied and no live card transaction, refund, shipment or email was sent. Remote idempotency and final settlement must be verified with the chosen services.
+1. **Bosta and email remain optional generic provider contracts.** Paymob now has a native hosted intention/callback layer, but client-owned sandbox credentials, callback registration, dashboard reconciliation and provider UAT are still required before activation.
+2. No production credentials were supplied and no live Paymob transaction, refund, manual transfer, shipment or email was sent. Remote idempotency and final settlement must be verified in staging with the chosen services.
 3. Database tests used PGlite, including its TCP multiplexer. Native PostgreSQL multi-connection locking/deadlocks, load/failover, container startup, Caddy certificate issuance, Cloudflare client-IP trust and backup restoration require staging validation. Docker was not available for an actual Compose run. Configuration was reviewed, not certified by deployment.
 4. Chromium was tested; Firefox, WebKit, physical devices, screen-reader audits, external penetration testing and measured Core Web Vitals were not performed. Representative XSS/input tests are not a comprehensive exploit campaign.
 5. MFA has a fail-closed readiness flag, not a working enrollment/TOTP flow. No active MFA claim is made. Password reset email requires the configured email provider.
@@ -71,14 +71,30 @@ Remaining limitations: no live Supabase/Vercel deployment or real manual transfe
 
 This was a focused review of the new customer authentication, account ownership, saved-address and QR/manual-payment changes. It was **not** the final production security audit.
 
-| Targeted verification | Result |
-|---|---|
-| Customer account/API tests | 7 passed, 0 failed: registration, bcrypt cost 14, duplicate registration, generic invalid login, session rotation/invalidation, logout, password change, hashed expiring single-use reset, authenticated/guest checkout, history/detail access, guest-order claim and customer/admin separation |
-| Ownership/IDOR tests | Passed: Customer B received 404 for Customer A order detail, order-success API, address update/delete and proof/order access; guest orders required both reference and private tracking key and could not be transferred after ownership |
-| Manual-payment/storage tests | 7 passed, 0 failed: COD, InstaPay/Vodafone configuration with/without safe QR, server-authoritative total, proof MIME/ownership, reference submission, prohibited customer status/amount fields, admin verification/rejection, duplicate transition safety and audit attribution |
-| Browser/UI checks | 75 route/responsive checks passed on Chromium at 1440/768/390 with no recorded page errors; a final focused 20-check rerun covered account registration, saved address, InstaPay/Vodafone QR/copy, reference submission, order history/detail and reduced motion after responsive CSS changes |
-| Static/build checks | ESLint, TypeScript and Next.js production build passed; the focused secret-pattern scan checked 71 files with no findings |
+| Targeted verification        | Result                                                                                                                                                                                                                                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customer account/API tests   | 7 passed, 0 failed: registration, bcrypt cost 14, duplicate registration, generic invalid login, session rotation/invalidation, logout, password change, hashed expiring single-use reset, authenticated/guest checkout, history/detail access, guest-order claim and customer/admin separation |
+| Ownership/IDOR tests         | Passed: Customer B received 404 for Customer A order detail, order-success API, address update/delete and proof/order access; guest orders required both reference and private tracking key and could not be transferred after ownership                                                        |
+| Manual-payment/storage tests | 7 passed, 0 failed: COD, InstaPay/Vodafone configuration with/without safe QR, server-authoritative total, proof MIME/ownership, reference submission, prohibited customer status/amount fields, admin verification/rejection, duplicate transition safety and audit attribution                |
+| Browser/UI checks            | 75 route/responsive checks passed on Chromium at 1440/768/390 with no recorded page errors; a final focused 20-check rerun covered account registration, saved address, InstaPay/Vodafone QR/copy, reference submission, order history/detail and reduced motion after responsive CSS changes   |
+| Static/build checks          | ESLint, TypeScript and Next.js production build passed; the focused secret-pattern scan checked 71 files with no findings                                                                                                                                                                       |
 
 The bcrypt cost-14 benchmark in this runtime averaged approximately 1.2 seconds per hash and was retained as requested. Customer and admin identities use mutually exclusive server-side session columns enforced by a database constraint. Customer order queries require `orders.account_id` ownership; historical guest orders are never attached by email or phone. Manual-payment customers can submit a reference or private proof but cannot update payment state or order totals.
 
 Remaining phase limitations: email delivery was not configured, so the reset UI remains generic and provider delivery requires staging credentials; QR images and receiving identifiers used only safe non-production test fixtures; no live transfer, Vercel deployment, Supabase project, physical-device/browser matrix or final external attack suite was performed.
+
+## Product polish and Paymob phase
+
+This phase adds Paymob's hosted intention flow without enabling it by default. Checkout totals and line items are rebuilt from locked database product, inventory, coupon and shipping records. Provider credentials remain server-only. The Paymob transaction callback requires the configured SHA-512 HMAC, merchant/provider-order correlation, integration-ID allowlisting, exact EGP minor-unit amount matching and a valid server-side state transition. Webhook event IDs and payload hashes provide replay-safe, conflict-detecting idempotency; stock is released once on failed or expired reservations.
+
+| Targeted verification | Result |
+| --- | --- |
+| Account, COD and manual-payment regression | 14 passed, 0 failed |
+| Paymob/admin/serverless-maintenance security tests | 9 passed, 0 failed: disabled configuration, database-authoritative amount, forged/mismatched HMAC rejection, valid/failed callbacks, replay idempotency, stock restoration, customer status denial, protected expiry route, generic admin throttling and multi-device sessions |
+| Browser/UI checks | 77 responsive route/flow checks plus a final focused 20-check gallery/account/payment rerun; Chromium at 1440/768/390, English/Arabic, reduced motion; 0 recorded page errors |
+| Production runtime checks | 25 passed over the actual Next production server with HTTPS, PostgreSQL wire transport and real cookies; includes `/ingredients` 404, sitemap cleanup, public ingredient-field omission, hidden admin discovery, COD confirmation and route/header checks |
+| Static/build checks | ESLint passed; TypeScript passed; optimized Next production build passed; secret scan checked 76 files with 0 findings |
+
+Migration `006_paymob_and_polish.sql` preserves historical records while adding Paymob provider references, payment-method support, the draft distance-selling content entry and the approved four-image gallery mapping. Targeted checks cover disabled/misconfigured Paymob, server-authoritative intention amounts, invalid and valid callback HMACs, wrong amount/integration/order rejection, successful and failed status transitions, duplicate callback behavior, unauthorized customer payment-state mutation, COD/manual-payment regression, the private proof path, removed public admin discovery and ingredient-route/content removal. This is a scoped review of modified areas, not the final external production security audit.
+
+Staging still requires real client-owned Paymob sandbox credentials, merchant payment-method integration IDs, callback registration, provider dashboard reconciliation and end-to-end success/failure/refund testing. Turnstile/TOTP, Vercel WAF rules, production monitoring/alerts, Supabase backup recovery and the final domain smoke test remain manual production tasks; none are claimed active here.

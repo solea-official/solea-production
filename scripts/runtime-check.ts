@@ -136,7 +136,6 @@ try {
     "/",
     "/products",
     "/products/baby-shampoo",
-    "/ingredients",
     "/about",
     "/cart",
     "/checkout",
@@ -148,6 +147,7 @@ try {
     "/returns",
     "/privacy",
     "/terms",
+    "/distance-selling",
     "/admin",
   ]) {
     const response = await page.goto(url + route);
@@ -161,13 +161,25 @@ try {
     (await context.request.get(url + "/missing-route")).status(),
     404,
   );
+  assert.equal((await context.request.get(url + "/ingredients")).status(), 404);
+  const sitemap = await (
+    await context.request.get(url + "/sitemap.xml")
+  ).text();
+  assert.equal(sitemap.includes("/ingredients"), false);
   assert.equal(
     (await context.request.get(url + "/api/admin/products")).status(),
     401,
   );
+  const publicProducts = await (
+    await context.request.get(url + "/api/products")
+  ).json();
+  assert.equal(Object.hasOwn(publicProducts[0], "inci"), false);
+  await page.goto(url + "/");
+  assert.equal(await page.locator('a[href="/admin"]').count(), 0);
+  assert.equal(await page.locator(".social-grid > a").count(), 3);
   await page.goto(url + "/admin/dashboard");
   await page.waitForURL("**/admin");
-  checks += 3;
+  checks += 5;
   await page
     .getByLabel("Email", { exact: true })
     .fill("runtime@example.invalid");

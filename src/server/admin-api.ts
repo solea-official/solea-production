@@ -16,10 +16,7 @@ import {
 } from "./validation";
 import { AppError, requireCondition } from "./config";
 import { changeOrder, enqueue } from "./commerce";
-import {
-  removeStored,
-  uploadProductImage,
-} from "./storage";
+import { removeStored, uploadProductImage } from "./storage";
 import { verifyManualPayment } from "./manual-payments";
 export async function adminApi(
   req: NextRequest,
@@ -89,7 +86,7 @@ export async function adminApi(
                count(*) FILTER (WHERE o.status='pending')::int pending_orders,
                count(*) FILTER (WHERE o.status='delivered')::int delivered_orders,
                count(*) FILTER (WHERE o.status='cancelled')::int cancelled_orders,
-               count(*) FILTER (WHERE p.status='awaiting_confirmation')::int pending_payments,
+               count(*) FILTER (WHERE p.status IN ('pending','awaiting_confirmation'))::int pending_payments,
                COALESCE(sum(o.total) FILTER (WHERE p.status='paid'),0)::int revenue
                FROM orders o JOIN payments p ON p.order_id=o.id`,
             )
@@ -116,7 +113,10 @@ export async function adminApi(
       return id
         ? ((await products(true)).find((p) => p.id === uuid.parse(id)) ?? null)
         : products(true);
-    if (action === "images" && (method === "POST" || (method === "PUT" && childId))) {
+    if (
+      action === "images" &&
+      (method === "POST" || (method === "PUT" && childId))
+    ) {
       uuid.parse(id);
       requireCondition(
         (await pool.query("SELECT 1 FROM products WHERE id=$1", [id])).rowCount,
@@ -132,7 +132,11 @@ export async function adminApi(
         "SELECT count(*)::int n FROM product_images WHERE product_id=$1",
         [id],
       );
-      requireCondition(method === "PUT" || count.rows[0].n < 20, 409, "IMAGE_LIMIT");
+      requireCondition(
+        method === "PUT" || count.rows[0].n < 20,
+        409,
+        "IMAGE_LIMIT",
+      );
       const bytes = await boundedBody(req, 4500000);
       const f = await new Response(bytes, {
         headers: { "Content-Type": req.headers.get("content-type") || "" },
@@ -147,17 +151,23 @@ export async function adminApi(
             )
           ).rows[0]
         : null;
-      if (method === "PUT") requireCondition(replaceCurrent, 404, "IMAGE_NOT_FOUND");
+      if (method === "PUT")
+        requireCondition(replaceCurrent, 404, "IMAGE_NOT_FOUND");
       const uploaded = await uploadProductImage(id, file);
       if (method === "PUT") {
         await pool.query(
           "UPDATE product_images SET url=$1,storage_path=$2 WHERE id=$3 AND product_id=$4",
           [uploaded.url, uploaded.path, childId, id],
         );
-        if (replaceCurrent.storage_path) await removeStored(replaceCurrent.storage_path);
-        await audit(pool, user.id, "image.replace", "products", id, { imageId: childId });
+        if (replaceCurrent.storage_path)
+          await removeStored(replaceCurrent.storage_path);
+        await audit(pool, user.id, "image.replace", "products", id, {
+          imageId: childId,
+        });
         return (
-          await pool.query("SELECT * FROM product_images WHERE id=$1", [childId])
+          await pool.query("SELECT * FROM product_images WHERE id=$1", [
+            childId,
+          ])
         ).rows[0];
       }
       const img = await pool.query(
@@ -178,11 +188,13 @@ export async function adminApi(
       ).rows[0];
       requireCondition(current, 404, "IMAGE_NOT_FOUND");
       if (current.storage_path) await removeStored(current.storage_path);
-      await pool.query("DELETE FROM product_images WHERE id=$1 AND product_id=$2", [
-        childId,
-        id,
-      ]);
-      await audit(pool, user.id, "image.delete", "products", id, { imageId: childId });
+      await pool.query(
+        "DELETE FROM product_images WHERE id=$1 AND product_id=$2",
+        [childId, id],
+      );
+      await audit(pool, user.id, "image.delete", "products", id, {
+        imageId: childId,
+      });
       return { ok: true };
     }
     if (action === "images" && method === "PUT") {
@@ -317,7 +329,7 @@ export async function adminApi(
       if (id) {
         const o = (
           await pool.query(
-            "SELECT o.*,c.name,c.email,c.mobile,a.governorate,a.city,a.street,a.building,a.floor,a.apartment,p.status payment_status,p.provider_id payment_provider,p.transfer_reference,p.proof_storage_path,p.verified_at,p.rejection_reason,v.email payment_verified_by,s.status shipping_status,s.tracking_id FROM orders o JOIN customers c ON c.id=o.customer_id JOIN addresses a ON a.id=o.address_id JOIN payments p ON p.order_id=o.id LEFT JOIN admin_users v ON v.id=p.verified_by JOIN shipments s ON s.order_id=o.id WHERE o.id=$1",
+            "SELECT o.*,c.name,c.email,c.mobile,a.governorate,a.city,a.street,a.building,a.floor,a.apartment,p.status payment_status,p.provider_id payment_provider,p.provider_order_id,p.provider_transaction_id,p.transfer_reference,p.proof_storage_path,p.verified_at,p.rejection_reason,v.email payment_verified_by,s.status shipping_status,s.tracking_id FROM orders o JOIN customers c ON c.id=o.customer_id JOIN addresses a ON a.id=o.address_id JOIN payments p ON p.order_id=o.id LEFT JOIN admin_users v ON v.id=p.verified_by JOIN shipments s ON s.order_id=o.id WHERE o.id=$1",
             [id],
           )
         ).rows[0];
@@ -344,9 +356,16 @@ export async function adminApi(
     requireCondition(id && method === "POST", 405, "METHOD_NOT_ALLOWED");
     if (action === "confirm-payment" || action === "reject-payment") {
       await admin(req, "payments");
-      const data = action === "reject-payment"
-        ? z.object({ reason: z.string().trim().min(1).max(500) }).strict().parse(await body())
-        : z.object({}).strict().parse(await body());
+      const data =
+        action === "reject-payment"
+          ? z
+              .object({ reason: z.string().trim().min(1).max(500) })
+              .strict()
+              .parse(await body())
+          : z
+              .object({})
+              .strict()
+              .parse(await body());
       return verifyManualPayment(
         user.id,
         id,
@@ -381,6 +400,7 @@ export async function adminApi(
       });
       return { ok: true };
     }
+    requireCondition(!action, 404, "NOT_FOUND");
     const d = z
       .object({
         status: z.enum(["processing", "shipped", "delivered", "cancelled"]),

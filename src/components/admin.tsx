@@ -398,8 +398,17 @@ function Dashboard({ data }: { data: Row }) {
           ["Pending orders", "طلبات قيد الانتظار", metrics.pending_orders],
           ["Delivered orders", "طلبات تم توصيلها", metrics.delivered_orders],
           ["Cancelled orders", "طلبات ملغاة", metrics.cancelled_orders],
-          ["Pending payments", "مدفوعات بانتظار التأكيد", metrics.pending_payments],
-        ].map(([en, ar, value]) => <div className="panel" key={String(en)}><p>{t(String(en), String(ar))}</p><strong>{str(value || 0)}</strong></div>)}
+          [
+            "Pending payments",
+            "مدفوعات بانتظار التأكيد",
+            metrics.pending_payments,
+          ],
+        ].map(([en, ar, value]) => (
+          <div className="panel" key={String(en)}>
+            <p>{t(String(en), String(ar))}</p>
+            <strong>{str(value || 0)}</strong>
+          </div>
+        ))}
         <div className="panel">
           <p>{t("Confirmed revenue", "الإيراد المؤكد")}</p>
           <strong>{currency(Number(metrics.revenue || 0), locale)}</strong>
@@ -418,7 +427,10 @@ function Dashboard({ data }: { data: Row }) {
           <strong>{str(data.jobs)}</strong>
         </div>
       </div>
-      <DataTable rows={data.orders as Row[]} columns={["status", "order_count", "units"]} />
+      <DataTable
+        rows={data.orders as Row[]}
+        columns={["status", "order_count", "units"]}
+      />
       <p className="notice">
         {t(
           "Before accepting orders: configure product prices and stock, delivery rates, approved policies, payment and email services.",
@@ -501,7 +513,15 @@ function DataTable({
                 <td key={c}>
                   {["status", "payment_status"].includes(c) ? (
                     <Status value={str(r[c])} />
-                  ) : ["price", "unit_price", "subtotal", "shipping", "discount", "total", "revenue"].includes(c) ? (
+                  ) : [
+                      "price",
+                      "unit_price",
+                      "subtotal",
+                      "shipping",
+                      "discount",
+                      "total",
+                      "revenue",
+                    ].includes(c) ? (
                     r[c] == null ? (
                       "—"
                     ) : (
@@ -733,11 +753,15 @@ function ImageEditor({ product }: { product: Product }) {
               type="button"
               disabled={busy}
               onClick={async () => {
-                if (!confirm(t("Remove this image?", "إزالة هذه الصورة؟"))) return;
+                if (!confirm(t("Remove this image?", "إزالة هذه الصورة؟")))
+                  return;
                 setBusy(true);
                 setError("");
                 try {
-                  await api(`admin/products/${product.id}/images/${img.id}`, "DELETE");
+                  await api(
+                    `admin/products/${product.id}/images/${img.id}`,
+                    "DELETE",
+                  );
                   setImages(images.filter((x) => x.id !== img.id));
                 } catch (e) {
                   setError((e as Error).message);
@@ -748,25 +772,36 @@ function ImageEditor({ product }: { product: Product }) {
             >
               {t("Remove", "إزالة")}
             </button>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              setBusy(true);
-              setError("");
-              try {
-                const replacement = await api<Product["images"][0]>(
-                  `admin/products/${product.id}/images/${img.id}`,
-                  "PUT",
-                  new FormData(e.currentTarget),
-                );
-                setImages(images.map((x) => x.id === img.id ? replacement : x));
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}>
-              <input name="file" type="file" accept="image/jpeg,image/png,image/webp" required />
-              <button type="submit" disabled={busy}>{t("Replace", "استبدال")}</button>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBusy(true);
+                setError("");
+                try {
+                  const replacement = await api<Product["images"][0]>(
+                    `admin/products/${product.id}/images/${img.id}`,
+                    "PUT",
+                    new FormData(e.currentTarget),
+                  );
+                  setImages(
+                    images.map((x) => (x.id === img.id ? replacement : x)),
+                  );
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <input
+                name="file"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                required
+              />
+              <button type="submit" disabled={busy}>
+                {t("Replace", "استبدال")}
+              </button>
             </form>
           </div>
         ))}
@@ -898,6 +933,9 @@ function OrderAdmin({
             "created_at",
             "payment_method",
             "payment_status",
+            "payment_provider",
+            "provider_order_id",
+            "provider_transaction_id",
             "transfer_reference",
             "payment_verified_by",
             "verified_at",
@@ -988,19 +1026,47 @@ function OrderAdmin({
                 {t("Confirm cash collected", "تأكيد تحصيل المبلغ")}
               </button>
             )}
-          {canVerify && ["instapay", "vodafone_cash"].includes(str(o.payment_method)) && o.payment_status === "awaiting_confirmation" && (
-            <>
-              <button className="button" onClick={() => {
-                if (confirm(t("Confirm this payment after checking the transfer?", "تأكيد الدفع بعد مراجعة التحويل؟"))) void mutate("confirm-payment", {});
-              }}>{t("Confirm payment", "تأكيد الدفع")}</button>
-              <button className="button secondary" onClick={() => {
-                const reason = prompt(t("Reason for rejection", "سبب الرفض"));
-                if (reason?.trim()) void mutate("reject-payment", { reason });
-              }}>{t("Reject payment", "رفض الدفع")}</button>
-            </>
-          )}
+          {canVerify &&
+            ["instapay", "vodafone_cash"].includes(str(o.payment_method)) &&
+            o.payment_status === "awaiting_confirmation" && (
+              <>
+                <button
+                  className="button"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        t(
+                          "Confirm this payment after checking the transfer?",
+                          "تأكيد الدفع بعد مراجعة التحويل؟",
+                        ),
+                      )
+                    )
+                      void mutate("confirm-payment", {});
+                  }}
+                >
+                  {t("Confirm payment", "تأكيد الدفع")}
+                </button>
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    const reason = prompt(
+                      t("Reason for rejection", "سبب الرفض"),
+                    );
+                    if (reason?.trim())
+                      void mutate("reject-payment", { reason });
+                  }}
+                >
+                  {t("Reject payment", "رفض الدفع")}
+                </button>
+              </>
+            )}
           {canVerify && !!o.proof_storage_path && (
-            <a className="button secondary" href={`/api/admin/orders/${o.id}/payment-proof`} target="_blank" rel="noreferrer">
+            <a
+              className="button secondary"
+              href={`/api/admin/orders/${o.id}/payment-proof`}
+              target="_blank"
+              rel="noreferrer"
+            >
               {t("View payment proof", "عرض إيصال الدفع")}
             </a>
           )}
@@ -1108,7 +1174,12 @@ function SettingsEditor({
 }) {
   const { t } = useStore();
   const [rates, setRates] = useState(
-      initial.shipping_zones as { governorate: string; zone: string; fee: number; active: boolean }[],
+      initial.shipping_zones as {
+        governorate: string;
+        zone: string;
+        fee: number;
+        active: boolean;
+      }[],
     ),
     [error, setError] = useState("");
   return (
@@ -1189,7 +1260,16 @@ function SettingsEditor({
           </label>
           <label>
             {t("Zone label", "اسم المنطقة")}
-            <input value={r.zone} onChange={(e) => setRates(rates.map((x, n) => n === i ? { ...x, zone: e.target.value } : x))} />
+            <input
+              value={r.zone}
+              onChange={(e) =>
+                setRates(
+                  rates.map((x, n) =>
+                    n === i ? { ...x, zone: e.target.value } : x,
+                  ),
+                )
+              }
+            />
           </label>
           <label>
             {t("Fee (EGP)", "الرسم (جنيه)")}
@@ -1210,7 +1290,17 @@ function SettingsEditor({
             />
           </label>
           <label className="check">
-            <input type="checkbox" checked={r.active} onChange={(e) => setRates(rates.map((x, n) => n === i ? { ...x, active: e.target.checked } : x))} />
+            <input
+              type="checkbox"
+              checked={r.active}
+              onChange={(e) =>
+                setRates(
+                  rates.map((x, n) =>
+                    n === i ? { ...x, active: e.target.checked } : x,
+                  ),
+                )
+              }
+            />
             {t("Active", "نشطة")}
           </label>
           <button
@@ -1225,13 +1315,29 @@ function SettingsEditor({
       <button
         type="button"
         className="button secondary"
-        onClick={() => setRates([...rates, { governorate: "", zone: "", fee: 0, active: false }])}
+        onClick={() =>
+          setRates([
+            ...rates,
+            { governorate: "", zone: "", fee: 0, active: false },
+          ])
+        }
       >
         {t("Add delivery area", "إضافة منطقة توصيل")}
       </button>
       <label>
-        {t("Free shipping threshold (EGP, optional)", "حد الشحن المجاني (جنيه، اختياري)")}
-        <input name="free_shipping_threshold" inputMode="decimal" defaultValue={initial.free_shipping_threshold ? Number(initial.free_shipping_threshold) / 100 : ""} />
+        {t(
+          "Free shipping threshold (EGP, optional)",
+          "حد الشحن المجاني (جنيه، اختياري)",
+        )}
+        <input
+          name="free_shipping_threshold"
+          inputMode="decimal"
+          defaultValue={
+            initial.free_shipping_threshold
+              ? Number(initial.free_shipping_threshold) / 100
+              : ""
+          }
+        />
       </label>
       <p className="small">
         {t(

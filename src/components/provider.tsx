@@ -63,7 +63,6 @@ export function Shell({
   const links = [
     ["/", "Home", "الرئيسية"],
     ["/products", "Shop", "المنتجات"],
-    ["/ingredients", "Ingredients", "المكوّنات"],
     ["/about", "Our story", "حكايتنا"],
     ["/contact", "Contact", "تواصل معنا"],
   ];
@@ -163,13 +162,17 @@ export function Shell({
               </p>
             </div>
             <div>
-              <h3>{t("Explore", "اكتشفي")}</h3>
-              {links.slice(1).map(([href, en, ar]) => (
-                <Link key={href} href={href}>
-                  {t(en, ar)}
-                </Link>
-              ))}
-              <Link href="/faq">{t("FAQ", "الأسئلة الشائعة")}</Link>
+              <h3>{t("Company", "الشركة")}</h3>
+              <Link href="/about">{t("Our story", "حكايتنا")}</Link>
+              <Link href="/products">{t("Shop", "المنتجات")}</Link>
+              <h3 className="footer-subtitle">{t("Social media", "التواصل الاجتماعي")}</h3>
+              <a
+                href={"https://www.instagram.com/" + data.settings.instagram + "/"}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                <bdi>@{data.settings.instagram}</bdi>
+              </a>
             </div>
             <div>
               <h3>{t("Customer care", "خدمة العملاء")}</h3>
@@ -177,8 +180,7 @@ export function Shell({
                 ["/track-order", "Track your order", "تتبّعي طلبك"],
                 ["/shipping-policy", "Shipping", "الشحن"],
                 ["/returns", "Returns", "الإرجاع"],
-                ["/privacy", "Privacy", "الخصوصية"],
-                ["/terms", "Terms", "الشروط والأحكام"],
+                ["/contact", "Contact", "تواصل معنا"],
               ].map(([href, en, ar]) => (
                 <Link key={href} href={href}>
                   {t(en, ar)}
@@ -186,27 +188,40 @@ export function Shell({
               ))}
             </div>
             <div>
-              <h3>{t("Let’s connect", "تواصلي معنا")}</h3>
+              <h3>{t("Contact", "تواصل معنا")}</h3>
               <a href={"tel:+20" + data.settings.phone.slice(1)} dir="ltr">
                 {data.settings.phone}
               </a>
               <a
-                href={
-                  "https://www.instagram.com/" + data.settings.instagram + "/"
-                }
-                rel="noopener noreferrer"
-                target="_blank"
+                href={"https://wa.me/20" + data.settings.phone.slice(1)}
               >
-                <bdi>@{data.settings.instagram}</bdi>
+                WhatsApp
               </a>
               <p>{t("Delivery configured at checkout", "يُحدّد التوصيل عند إتمام الطلب")}</p>
             </div>
+            <div>
+              <h3>{t("Legal", "قانوني")}</h3>
+              {[
+                ["/privacy", "Privacy", "الخصوصية"],
+                ["/terms", "Terms", "الشروط والأحكام"],
+                ["/returns", "Returns", "الإرجاع"],
+                ["/shipping-policy", "Shipping policy", "سياسة الشحن"],
+                ["/distance-selling", "Distance selling", "البيع عن بُعد"],
+              ].map(([href, en, ar]) => (
+                <Link key={href} href={href}>{t(en, ar)}</Link>
+              ))}
+            </div>
+            {data.settings.paymob.enabled && (
+              <div className="footer-payments">
+                <h3>{t("Secure payments", "دفع آمن")}</h3>
+                <span>Paymob</span>
+                <p>{t("Hosted secure checkout", "صفحة دفع آمنة مستضافة")}</p>
+              </div>
+            )}
           </div>
           <div className="footer-bottom">
             <span>SOLÉA · CARE FROM NATURE</span>
-            <Link href="/admin">
-              {t("Store administration", "إدارة المتجر")}
-            </Link>
+            <span>© {new Date().getFullYear()} SOLÉA</span>
           </div>
         </div>
       </footer>

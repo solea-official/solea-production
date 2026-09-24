@@ -6,7 +6,6 @@ for (const route of [
   "/",
   "/products",
   "/products/baby-shampoo",
-  "/ingredients",
   "/about",
   "/cart",
   "/checkout",
@@ -37,6 +36,13 @@ for (const route of [
   checks++;
 }
 assert.equal((await fetch(new URL("/missing-page", base))).status, 404);
+assert.equal((await fetch(new URL("/ingredients", base))).status, 404);
+assert.equal(
+  (await (await fetch(new URL("/sitemap.xml", base))).text()).includes(
+    "/ingredients",
+  ),
+  false,
+);
 assert.equal((await fetch(new URL("/api/admin/products", base))).status, 401);
 const admin = await fetch(new URL("/admin/dashboard", base), {
   redirect: "manual",

@@ -5,7 +5,6 @@ import type { Metadata } from "next";
 import {
   Catalog,
   ProductDetail,
-  Ingredients,
   Information,
 } from "@/components/storefront";
 import {
@@ -101,7 +100,6 @@ export default async function Page({
   if (!pages[path] && !accountOrder) notFound();
   if (path === "products")
     return <Catalog products={await products()} data={data} />;
-  if (path === "ingredients") return <Ingredients />;
   if (path === "cart") return <CartPage />;
   if (path === "checkout") return <Checkout data={data} />;
   if (path === "order-success")

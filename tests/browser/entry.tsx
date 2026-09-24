@@ -5,7 +5,6 @@ import {
   Home,
   Catalog,
   ProductDetail,
-  Ingredients,
   Information,
 } from "../../src/components/storefront";
 import {
@@ -50,7 +49,6 @@ else if (path[0] === "products")
         data={data}
       />
     );
-else if (path[0] === "ingredients") page = <Ingredients />;
 else if (path[0] === "cart") page = <CartPage />;
 else if (path[0] === "checkout") page = <Checkout data={data} />;
 else if (path[0] === "order-success") page = <OrderSuccess />;

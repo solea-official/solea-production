@@ -11,8 +11,8 @@ await transaction(async (db) => {
       "baby-shampoo",
       "SOLÉA Baby Shampoo",
       "SOLÉA شامبو الأطفال",
-      "Gentle baby shampoo with selected botanical ingredients. A thoughtful essential for your baby’s everyday routine.",
-      "شامبو لطيف للأطفال بمكوّنات نباتية مختارة، لبداية بسيطة لروتين العناية اليومي.",
+      "A thoughtful baby shampoo for a simple everyday care routine.",
+      "شامبو أطفال بعناية مدروسة لروتين يومي بسيط.",
       "125 mL",
       cat.rows[0].id,
       formula.map((x) => x[0]).join(", "),
@@ -26,10 +26,10 @@ await transaction(async (db) => {
     const id = p.rows[0].id;
     await db.query("INSERT INTO inventory(product_id) VALUES($1)", [id]);
     for (const [i, img] of [
-      "product.webp",
-      "back.webp",
-      "box.png",
-      "hero.webp",
+      "product-main-v2.webp",
+      "product-benefits-v2.webp",
+      "product-care-v2.webp",
+      "product-how-to-v2.webp",
     ].entries())
       await db.query(
         "INSERT INTO product_images(product_id,url,alt_en,alt_ar,position) VALUES($1,$2,$3,$4,$5)",
@@ -37,16 +37,16 @@ await transaction(async (db) => {
           id,
           "/media/" + img,
           [
-            "SOLÉA bottle front",
-            "SOLÉA bottle back",
-            "SOLÉA kraft box",
-            "SOLÉA product scene",
+            "SOLÉA Baby Shampoo 125 mL",
+            "SOLÉA Baby Shampoo usage and care guide",
+            "SOLÉA Baby Shampoo product care guide",
+            "SOLÉA Baby Shampoo botanical detail guide",
           ][i],
           [
-            "وجه عبوة SOLÉA",
-            "ظهر عبوة SOLÉA",
-            "علبة SOLÉA الكرافت",
-            "صورة منتج SOLÉA",
+            "شامبو SOLÉA للأطفال 125 مل",
+            "دليل استخدام وعناية شامبو SOLÉA للأطفال",
+            "دليل العناية الخاص بشامبو SOLÉA للأطفال",
+            "دليل التفاصيل النباتية لشامبو SOLÉA للأطفال",
           ][i],
           i,
         ],
@@ -82,6 +82,13 @@ await transaction(async (db) => {
       "ستُنشر الشروط والأحكام قبل إتاحة الطلبات.",
     ],
     [
+      "distance-selling",
+      "Distance selling",
+      "البيع عن بُعد",
+      "Final distance-selling terms require business and legal approval before orders open.",
+      "تتطلب شروط البيع عن بُعد النهائية اعتماد الشركة والمراجعة القانونية قبل إتاحة الطلبات.",
+    ],
+    [
       "hero",
       "Gentle care for little beginnings.",
       "عناية لطيفة لأجمل البدايات.",
@@ -99,8 +106,8 @@ await transaction(async (db) => {
       "faq-1",
       "What is our first product?",
       "ما أول منتجاتنا؟",
-      "SOLÉA Baby Shampoo, a 125 mL baby shampoo with selected botanical ingredients.",
-      "شامبو SOLÉA للأطفال، بمكوّنات نباتية مختارة، في عبوة 125 مل.",
+      "SOLÉA Baby Shampoo, presented in a 125 mL bottle.",
+      "شامبو SOLÉA للأطفال في عبوة 125 مل.",
     ],
     [
       "faq-2",
@@ -119,7 +126,7 @@ await transaction(async (db) => {
         ar,
         be,
         ba,
-        !["terms", "privacy", "returns", "shipping-policy"].includes(key),
+        !["terms", "privacy", "returns", "shipping-policy", "distance-selling"].includes(key),
       ],
     );
 });
