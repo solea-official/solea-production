@@ -6,5 +6,11 @@
     "src/app/api/[...path]/route.ts": {
       "maxDuration": 30
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/internal/maintenance",
+      "schedule": "*/10 * * * *"
+    }
+  ]
 }

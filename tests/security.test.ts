@@ -11,6 +11,7 @@ import {
   auth,
   clearRates,
   Client,
+  storedObject,
 } from "./helpers";
 const { proxy } = await import("../src/proxy");
 const { discountAmount } = await import("../src/server/commerce");
@@ -573,7 +574,17 @@ test("valid image upload is reencoded and image reordering checks ownership", as
   );
   assert.equal(r.status, 200);
   const data = await r.json();
-  assert.match(data.url, /^\/api\/media\/[a-f0-9-]+\.webp$/);
+  assert.match(
+    data.storage_path,
+    new RegExp(`^products/${productId}/[a-f0-9-]{36}\\.webp$`),
+  );
+  assert.equal(
+    data.url,
+    `https://storage.example.invalid/product-images/${data.storage_path}`,
+  );
+  const storedWebp = storedObject("product-images", data.storage_path);
+  assert.ok(storedWebp);
+  assert.equal((await sharp(storedWebp).metadata()).format, "webp");
   assert.equal(
     (
       await request(owner, "admin/products/" + productId + "/images", "PUT", {
@@ -645,7 +656,7 @@ test("unknown signatures, stale timestamps and unconfigured adapters fail closed
   assert.equal(
     (await request(owner, "admin/orders/" + orderId + "/ship", "POST", {}))
       .status,
-    503,
+    404,
   );
 });
 test("payment amount verification, event replay and invalid state rollback", async () => {
@@ -906,8 +917,9 @@ test("shipping signatures, provider binding and forward-only status; failed jobs
   );
   const job = (
     await db.query(
-      "UPDATE outbox SET status='failed',attempts=8 WHERE order_id=$1 AND kind='order-email' RETURNING id",
-      [id],
+      `INSERT INTO outbox(kind,order_id,payload,dedupe_key,status,attempts,last_error)
+       VALUES('test-retry',$1,'{}',$2,'failed',8,'SAFE_TEST_FAILURE') RETURNING id`,
+      [id, `test-retry:${randomUUID()}`],
     )
   ).rows[0];
   assert.equal(
@@ -1005,7 +1017,10 @@ test("runtime database grants forbid schema changes, audit edits and history del
       "CREATE TABLE forbidden(id int)",
     ])
       await assert.rejects(() => db.query(statement));
-    await db.query("SELECT id FROM products LIMIT 1");
+    assert.equal(
+      (await db.query("SELECT id FROM products LIMIT 1")).rowCount,
+      1,
+    );
     await db.query(
       "INSERT INTO audit_logs(action,entity) VALUES('test.permission','tests')",
     );

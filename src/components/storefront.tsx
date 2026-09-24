@@ -2,10 +2,9 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useStore, ErrorMessage } from "./provider";
-import { Icon, Botanical } from "./brand";
+import { Icon } from "./brand";
 import { Product, StoreData } from "@/lib/types";
 import { api, currency, analytics } from "@/lib/api";
-import { botanicals, formula } from "@/lib/formula";
 export function ProductCard({ product: p }: { product: Product }) {
   const { t, locale } = useStore();
   return (
@@ -176,9 +175,6 @@ export function Home({
               {t("Discover SOLÉA", "اكتشفي SOLÉA")}
               <Icon />
             </Link>
-            <Link className="text-link" href="/ingredients">
-              {t("Our ingredients", "مكوّناتنا")}
-            </Link>
           </div>
           <span className="hero-footnote">
             {t(
@@ -189,7 +185,7 @@ export function Home({
         </div>
         <div className="hero-image">
           <img
-            src="/media/hero.webp"
+            src="/media/product-main-v2.webp"
             alt={t(
               "SOLÉA white pump bottle in soft natural light",
               "عبوة SOLÉA بمضخة بيضاء في إضاءة طبيعية ناعمة",
@@ -221,8 +217,8 @@ export function Home({
         </h2>
         <p>
           {t(
-            "A simple care routine, inspired by nature. Explore the thoughtful ingredients behind our first little essential.",
-            "روتين عناية بسيط، مستوحى من الطبيعة. تعرّفي على المكوّنات المختارة لأول منتجاتنا.",
+            "A simple care routine, inspired by nature and created for quiet everyday moments.",
+            "روتين عناية بسيط، مستوحى من الطبيعة ومصمم للحظات اليومية الهادئة.",
           )}
         </p>
         <Link href="/about" className="text-link">
@@ -258,15 +254,10 @@ export function Home({
               </h2>
               <p>
                 {t(
-                  "Aloe, rose flower water and selected plant extracts, brought together in a baby shampoo.",
-                  "الألوفيرا وماء الورد ومستخلصات نباتية مختارة، اجتمعت في شامبو للأطفال.",
+                  "A thoughtfully presented baby shampoo for a calm and simple everyday care routine.",
+                  "شامبو أطفال بعناية مدروسة لروتين يومي هادئ وبسيط.",
                 )}
               </p>
-              <div className="chips">
-                <span>{t("Aloe vera", "الألوفيرا")}</span>
-                <span>{t("Rose water", "ماء الورد")}</span>
-                <span>125 mL</span>
-              </div>
               {products[0] && (
                 <Link className="button" href={"/products/" + products[0].slug}>
                   {t("Explore the product", "اكتشفي المنتج")}
@@ -275,23 +266,6 @@ export function Home({
               )}
             </div>
           </div>
-        </div>
-      </section>
-      <section className="section wrap">
-        <div className="section-heading">
-          <h2>{t("A little closer to nature.", "أقرب قليلًا إلى الطبيعة.")}</h2>
-          <Link className="text-link" href="/ingredients">
-            {t("Meet the ingredients", "تعرّفي على المكوّنات")}
-            <Icon />
-          </Link>
-        </div>
-        <div className="botanical-preview">
-          {botanicals.slice(0, 6).map(([en, ar, , kind]) => (
-            <Link href="/ingredients" key={kind}>
-              <Botanical kind={kind} />
-              <h3>{t(en, ar)}</h3>
-            </Link>
-          ))}
         </div>
       </section>
       <section className="ritual">
@@ -335,7 +309,7 @@ export function Home({
           </a>
         </div>
         <div className="social-grid">
-          {["hero.webp", "botanicals.webp", "lifestyle.webp", "box.png"].map(
+          {["world-bath-v2.webp", "world-teddy-v2.webp", "world-play-v2.webp"].map(
             (src, i) => (
               <a
                 key={src}
@@ -349,16 +323,14 @@ export function Home({
                   src={"/media/" + src}
                   alt={t(
                     [
-                      "SOLÉA product",
-                      "Botanical still life",
-                      "Care essentials",
-                      "Kraft packaging",
+                      "Baby bath essentials with bubbles and towels",
+                      "Soft teddy and baby-care textiles",
+                      "Gentle bath-time play essentials",
                     ][i],
                     [
-                      "منتج SOLÉA",
-                      "مكوّنات نباتية",
-                      "أدوات العناية",
-                      "عبوة كرافت",
+                      "أدوات استحمام للأطفال مع فقاعات ومناشف",
+                      "دبدوب ناعم ومنسوجات للعناية بالأطفال",
+                      "أدوات لطيفة للعب وقت الاستحمام",
                     ][i],
                   )}
                   loading="lazy"
@@ -482,6 +454,44 @@ export function Catalog({
     </>
   );
 }
+
+function GalleryCopy({ index }: { index: number }) {
+  if (index === 1)
+    return (
+      <div className="gallery-copy gallery-copy-left">
+        <span>THOUGHTFUL EVERYDAY CARE</span>
+        <h3>One gentle step.</h3>
+        <p>Baby Shampoo</p>
+        <p>Hair &amp; Body Wash</p>
+        <strong>125 mL</strong>
+      </div>
+    );
+  if (index === 2)
+    return (
+      <div className="gallery-copy gallery-copy-right">
+        <span>BABY-CARE ESSENTIAL</span>
+        <h3>Bath-time, made simple.</h3>
+        <p>Soft cleansing experience</p>
+        <p>Easy pump bottle</p>
+        <strong>125 mL</strong>
+      </div>
+    );
+  if (index === 3)
+    return (
+      <div className="gallery-copy gallery-copy-left how-to-copy">
+        <span>HOW TO USE</span>
+        <h3>Three simple steps.</h3>
+        <ol>
+          <li>Apply a small amount to wet hair or body.</li>
+          <li>Gently massage.</li>
+          <li>Rinse thoroughly with water.</li>
+        </ol>
+        <strong>125 mL</strong>
+      </div>
+    );
+  return null;
+}
+
 export function ProductDetail({
   product: p,
   data,
@@ -495,7 +505,8 @@ export function ProductDetail({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
-  const image = p.images[index] || p.images[0];
+  const images = p.slug === "baby-shampoo" ? p.images.slice(0, 4) : p.images;
+  const image = images[index] || images[0];
   useEffect(() => analytics("view_product", p.id), [p.id]);
   return (
     <>
@@ -512,14 +523,16 @@ export function ProductDetail({
             onClick={() => dialog.current?.showModal()}
           >
             <img
+              key={image?.id}
               src={image?.url || "/media/logo.png"}
               alt={t(image?.alt_en || p.name_en, image?.alt_ar || p.name_ar)}
               width="800"
               height="800"
             />
+            {p.slug === "baby-shampoo" && <GalleryCopy index={index} />}
           </button>
           <div className="thumbnails">
-            {p.images.map((img, i) => (
+            {images.map((img, i) => (
               <button
                 key={img.id}
                 aria-pressed={index === i}
@@ -539,11 +552,13 @@ export function ProductDetail({
               <Icon name="close" />
             </button>
             <img
+              key={image?.id}
               src={image?.url || "/media/logo.png"}
               alt={t(image?.alt_en || p.name_en, image?.alt_ar || p.name_ar)}
               width="1000"
               height="1000"
             />
+            {p.slug === "baby-shampoo" && <GalleryCopy index={index} />}
           </dialog>
         </div>
         <div className="detail-copy">
@@ -624,25 +639,13 @@ export function ProductDetail({
             {t("View your bag", "عرض السلة")}
             <Icon />
           </Link>
-          {p.slug === "baby-shampoo" && (
-            <div className="chips">
-              <span>{t("Aloe vera", "الألوفيرا")}</span>
-              <span>{t("Rose water", "ماء الورد")}</span>
-            </div>
-          )}
           {[
-            [t("Full ingredients / INCI", "المكوّنات الكاملة / INCI"), p.inci],
             [t("How to use", "طريقة الاستخدام"), t(p.usage_en, p.usage_ar)],
             [t("Warnings", "تحذيرات"), t(p.warnings_en, p.warnings_ar)],
-          ].map(([title, body], i) => (
+          ].map(([title, body]) => (
             <details key={title}>
               <summary>{title}</summary>
-              <p
-                dir={i === 0 ? "ltr" : undefined}
-                className={i === 0 ? "inci" : ""}
-              >
-                {body}
-              </p>
+              <p>{body}</p>
             </details>
           ))}
           <details>
@@ -672,72 +675,10 @@ export function ProductDetail({
     </>
   );
 }
-export function Ingredients() {
-  const { t } = useStore();
-  return (
-    <>
-      <PageTitle
-        eyebrow={t("Botanical ingredients", "المكوّنات النباتية")}
-        title={t("Every ingredient has a place.", "لكل مكوّن مكانه.")}
-        description={t(
-          "Explore our formula, from plant extracts to cleansing ingredients.",
-          "اكتشفي تركيبتنا، من المستخلصات النباتية إلى مواد التنظيف.",
-        )}
-      />
-      <section className="section wrap compact">
-        <div className="ingredients-grid">
-          {botanicals.map(([en, ar, i, kind]) => (
-            <article key={en}>
-              <Botanical kind={kind} />
-              <h2>{t(en, ar)}</h2>
-              <p className="latin" lang="en" dir="ltr">
-                {formula[i][0]}
-              </p>
-              <p>{t(formula[i][2], formula[i][3])}</p>
-            </article>
-          ))}
-        </div>
-        <img
-          className="botanical-banner"
-          src="/media/botanicals.webp"
-          alt={t("Selected botanical ingredients", "مكوّنات نباتية مختارة")}
-          width="1300"
-          height="500"
-        />
-        <h2>{t("The complete formula", "التركيبة الكاملة")}</h2>
-        <p className="small">
-          {t(
-            "Functions describe each ingredient in the supplied formulation, not clinical benefits or certifications.",
-            "الوظائف تصف دور المكوّن في مستند التركيبة، ولا تعني فوائد علاجية أو شهادات اعتماد.",
-          )}
-        </p>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>INCI</th>
-                <th>%</th>
-                <th>{t("Function", "الوظيفة")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {formula.map(([name, value, en, ar]) => (
-                <tr key={name}>
-                  <td dir="ltr">{name}</td>
-                  <td>{value}%</td>
-                  <td>{t(en, ar)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </>
-  );
-}
 export function Information({ page, data }: { page: string; data: StoreData }) {
   const { t } = useStore();
   const entry = data.content.find((x) => x.key === page);
+  const legalPages = ["privacy", "terms", "returns", "shipping-policy", "distance-selling"];
   if (page === "contact")
     return (
       <>
@@ -806,7 +747,32 @@ export function Information({ page, data }: { page: string; data: StoreData }) {
         )}
         eyebrow="SOLÉA"
       />
-      <section className="section wrap narrow compact">
+      <section className={`section wrap narrow compact${legalPages.includes(page) ? " legal-page" : ""}`}>
+        {legalPages.includes(page) && (
+          <>
+            <nav className="legal-nav" aria-label={t("Legal pages", "الصفحات القانونية")}>
+              {[
+                ["/privacy", "Privacy", "الخصوصية"],
+                ["/terms", "Terms", "الشروط"],
+                ["/returns", "Returns", "الإرجاع"],
+                ["/shipping-policy", "Shipping", "الشحن"],
+                ["/distance-selling", "Distance selling", "البيع عن بُعد"],
+              ].map(([href, en, ar]) => (
+                <Link key={href} href={href} aria-current={href === `/${page}` ? "page" : undefined}>
+                  {t(en, ar)}
+                </Link>
+              ))}
+            </nav>
+            {!entry?.published && (
+              <p className="legal-draft">
+                {t(
+                  "Draft placeholder — final business and legal approval is still required.",
+                  "مسودة مؤقتة — لا تزال بحاجة إلى اعتماد الشركة والمراجعة القانونية النهائية.",
+                )}
+              </p>
+            )}
+          </>
+        )}
         <p className="prose">{t(entry?.body_en || "", entry?.body_ar || "")}</p>
         {page === "about" && (
           <>

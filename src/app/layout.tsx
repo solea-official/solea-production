@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "SOLÉA",
     description: "Gentle care for little beginnings.",
-    images: ["/media/hero.webp"],
+    images: ["/media/product-main-v2.webp"],
     type: "website",
   },
 };

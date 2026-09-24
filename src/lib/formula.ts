@@ -51,12 +51,3 @@ export const formula = [
   ["Polyquaternium-10", "0.3", "Antistatic", "مضاد للكهرباء الساكنة"],
   ["Citric Acid", "0.07", "Buffering", "تنظيم درجة الحموضة"],
 ];
-export const botanicals = [
-  ["Aloe vera", "الألوفيرا", 2, "aloe"],
-  ["Orange", "البرتقال", 7, "orange"],
-  ["Melissa", "المليسة", 8, "melissa"],
-  ["Rose", "الورد", 9, "rose"],
-  ["Myrtle", "الآس", 10, "myrtle"],
-  ["Thyme", "الزعتر", 11, "thyme"],
-  ["Glycerin", "الجلسرين", 6, "drop"],
-] as const;

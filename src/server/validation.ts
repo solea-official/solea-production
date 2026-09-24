@@ -70,7 +70,12 @@ export const settingsSchema = z
       )
       .max(100)
       .refine((a) => new Set(a.map((x) => x.governorate)).size === a.length),
-    free_shipping_threshold: z.number().int().positive().max(100000000).nullable(),
+    free_shipping_threshold: z
+      .number()
+      .int()
+      .positive()
+      .max(100000000)
+      .nullable(),
   })
   .strict();
 export const checkoutSchema = z
@@ -86,7 +91,7 @@ export const checkoutSchema = z
     floor: z.string().max(30),
     apartment: z.string().max(30),
     notes: z.string().max(1000),
-    payment: z.enum(["cod", "instapay", "vodafone_cash"]),
+    payment: z.enum(["cod", "paymob", "instapay", "vodafone_cash"]),
     transferReference: z.string().trim().max(120).default(""),
     savedAddressId: uuid.nullable().default(null),
     saveAddress: z.boolean().default(false),
@@ -122,7 +127,11 @@ export const customerRegisterSchema = z
 export const customerLoginSchema = z
   .object({
     email,
-    password: z.string().min(1).max(72).refine((v) => Buffer.byteLength(v, "utf8") <= 72),
+    password: z
+      .string()
+      .min(1)
+      .max(72)
+      .refine((v) => Buffer.byteLength(v, "utf8") <= 72),
   })
   .strict();
 

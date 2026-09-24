@@ -1,7 +1,7 @@
 import { boundedBody } from "@/server/http";
 import { NextRequest, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { pool, transaction, audit } from "@/server/db";
 import { AppError, requireCondition, config } from "@/server/config";
@@ -28,9 +28,16 @@ import {
   customerRegisterSchema,
   customerLoginSchema,
 } from "@/server/validation";
-import { getCart, setCartItem, checkout, quote } from "@/server/commerce";
+import {
+  getCart,
+  setCartItem,
+  checkout,
+  quote,
+  expirePendingPayments,
+} from "@/server/commerce";
 import { adminApi } from "@/server/admin-api";
 import { webhook } from "@/server/webhooks";
+import { paymobWebhook } from "@/server/paymob-webhook";
 import { sendEmail } from "@/server/integrations";
 import {
   downloadPaymentProof,
@@ -91,6 +98,19 @@ async function handler(
     if (endpoint === "health" && method === "GET") {
       await pool.query("SELECT 1");
       return result({ status: "ok" });
+    }
+    if (endpoint === "internal/maintenance" && method === "GET") {
+      const secret = process.env.CRON_SECRET || "";
+      requireCondition(secret.length >= 32, 503, "INTEGRATION_NOT_CONFIGURED");
+      requireCondition(
+        timingSafeEqual(
+          Buffer.from(hash(req.headers.get("authorization") || ""), "hex"),
+          Buffer.from(hash(`Bearer ${secret}`), "hex"),
+        ),
+        401,
+        "INVALID_SIGNATURE",
+      );
+      return result({ ok: true, expired: await expirePendingPayments() });
     }
     if (endpoint === "session" && method === "GET") {
       await rate(req, "session", 120, 60);
@@ -224,7 +244,11 @@ async function handler(
       const s = await session(req);
       csrf(req, s);
       const data = customerLoginSchema.parse(await body());
-      const { next, account } = await loginCustomer(req, data.email, data.password);
+      const { next, account } = await loginCustomer(
+        req,
+        data.email,
+        data.password,
+      );
       const response = result({ account, csrf: sign(next.raw) });
       setSession(response, next);
       return response;
@@ -241,10 +265,17 @@ async function handler(
       const s = await session(req);
       csrf(req, s);
       const data = z
-        .object({ currentPassword: z.string().min(1).max(72), newPassword: customerPassword })
+        .object({
+          currentPassword: z.string().min(1).max(72),
+          newPassword: customerPassword,
+        })
         .strict()
         .parse(await body());
-      const next = await changeCustomerPassword(req, data.currentPassword, data.newPassword);
+      const next = await changeCustomerPassword(
+        req,
+        data.currentPassword,
+        data.newPassword,
+      );
       const response = result({ ok: true, csrf: sign(next.raw) });
       setSession(response, next);
       return response;
@@ -253,7 +284,10 @@ async function handler(
       const s = await session(req);
       csrf(req, s);
       await rate(req, "customer-reset", 5, 3600);
-      const data = z.object({ email }).strict().parse(await body());
+      const data = z
+        .object({ email })
+        .strict()
+        .parse(await body());
       if (
         process.env.EMAIL_ENABLED === "true" &&
         process.env.EMAIL_ADAPTER_URL &&
@@ -270,9 +304,10 @@ async function handler(
               `customer-reset:${hash(reset.raw)}`,
             );
           } catch {
-            await pool.query("DELETE FROM customer_password_resets WHERE token_hash=$1", [
-              hash(reset.raw),
-            ]);
+            await pool.query(
+              "DELETE FROM customer_password_resets WHERE token_hash=$1",
+              [hash(reset.raw)],
+            );
           }
         }
       }
@@ -283,10 +318,18 @@ async function handler(
       csrf(req, s);
       await rate(req, "customer-reset-confirm", 10, 3600);
       const data = z
-        .object({ token: z.string().regex(/^[a-f0-9]{64}$/), password: customerPassword })
+        .object({
+          token: z.string().regex(/^[a-f0-9]{64}$/),
+          password: customerPassword,
+        })
         .strict()
         .parse(await body());
       return result(await resetCustomerPassword(data.token, data.password));
+    }
+    if (endpoint === "webhooks/paymob" && method === "POST") {
+      await rate(req, "paymob-webhook", 300, 60);
+      await body();
+      return result(await paymobWebhook(req, raw!));
     }
     if (
       parts[0] === "webhooks" &&
@@ -306,7 +349,10 @@ async function handler(
       await admin(req, "payments");
       const orderId = uuid.parse(parts[2]);
       const proof = (
-        await pool.query("SELECT proof_storage_path FROM payments WHERE order_id=$1", [orderId])
+        await pool.query(
+          "SELECT proof_storage_path FROM payments WHERE order_id=$1",
+          [orderId],
+        )
       ).rows[0]?.proof_storage_path;
       requireCondition(proof, 404, "FILE_NOT_FOUND");
       const buffer = await downloadPaymentProof(proof);
@@ -373,7 +419,11 @@ async function handler(
     }
     if (endpoint === "payment-proof" && method === "POST") {
       await rate(req, "payment-proof", 5, 3600, s.id);
-      requireCondition(Number(req.headers.get("content-length") || 0) <= 5_000_000, 413, "FILE_TOO_LARGE");
+      requireCondition(
+        Number(req.headers.get("content-length") || 0) <= 5_000_000,
+        413,
+        "FILE_TOO_LARGE",
+      );
       const bytes = await boundedBody(req, 4_500_000);
       const form = await new Response(bytes, {
         headers: { "Content-Type": req.headers.get("content-type") || "" },
@@ -401,10 +451,10 @@ async function handler(
           )
         ).rows[0];
         requireCondition(payment, 404, "ORDER_NOT_FOUND");
-        await db.query("UPDATE payments SET proof_storage_path=$1,updated_at=now() WHERE order_id=$2", [
-          path,
-          orderId,
-        ]);
+        await db.query(
+          "UPDATE payments SET proof_storage_path=$1,updated_at=now() WHERE order_id=$2",
+          [path, orderId],
+        );
         return payment.proof_storage_path as string | null;
       });
       if (old) await removeStored(old, true);
@@ -431,10 +481,17 @@ async function handler(
           "UPDATE payments SET transfer_reference=$1,updated_at=now() WHERE order_id=$2",
           [data.reference, data.orderId],
         );
-        await audit(db, null, "payment.customer-submitted", "orders", data.orderId, {
-          referenceProvided: true,
-          customerAccount: !!s.customer_account_id,
-        });
+        await audit(
+          db,
+          null,
+          "payment.customer-submitted",
+          "orders",
+          data.orderId,
+          {
+            referenceProvided: true,
+            customerAccount: !!s.customer_account_id,
+          },
+        );
       });
       return result({ ok: true });
     }

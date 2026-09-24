@@ -8,6 +8,13 @@ import chromium from "@sparticuz/chromium";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { db, engine, route } from "../tests/helpers";
+Object.assign(process.env, {
+  PAYMOB_ENABLED: "true",
+  PAYMOB_SECRET_KEY: "ui-test-server-secret",
+  PAYMOB_PUBLIC_KEY: "ui-test-public-key",
+  PAYMOB_HMAC_SECRET: randomBytes(32).toString("hex"),
+  PAYMOB_INTEGRATION_IDS: "123456",
+});
 await import("./seed");
 const { products } = await import("../src/server/catalog");
 const { storeData } = await import("../src/server/store");
@@ -44,12 +51,29 @@ await context.grantPermissions(["clipboard-read", "clipboard-write"], {
 const errors: string[] = [];
 const page = await context.newPage();
 page.on("pageerror", (e) => errors.push(e.message));
+async function revealPage() {
+  const height = await page.evaluate(
+    () => document.documentElement.scrollHeight,
+  );
+  for (let y = 0; y < height; y += 700) {
+    await page.evaluate((top) => scrollTo(0, top), y);
+    await page.waitForTimeout(35);
+  }
+  await page.evaluate(() => scrollTo(0, 0));
+  await page.waitForTimeout(100);
+}
 const css = await readFile("src/app/globals.css", "utf8");
 const app = await readFile("var/ui/app.js");
 await context.route("https://qr.example.invalid/**", async (r) => {
-  const label = r.request().url().includes("instapay") ? "InstaPay" : "Vodafone Cash";
+  const label = r.request().url().includes("instapay")
+    ? "InstaPay"
+    : "Vodafone Cash";
   const modules = Array.from({ length: 15 }, (_, y) =>
-    Array.from({ length: 15 }, (_, x) => ((x * 7 + y * 11 + x * y) % 5 < 2 ? `<rect x="${x * 10}" y="${y * 10}" width="10" height="10"/>` : "")).join(""),
+    Array.from({ length: 15 }, (_, x) =>
+      (x * 7 + y * 11 + x * y) % 5 < 2
+        ? `<rect x="${x * 10}" y="${y * 10}" width="10" height="10"/>`
+        : "",
+    ).join(""),
   ).join("");
   await r.fulfill({
     contentType: "image/svg+xml",
@@ -74,7 +98,10 @@ await context.route("http://localhost:3000/**", async (r) => {
         request.method() as keyof typeof route
       ] as typeof route.GET;
       const res = await fn(req, { params: Promise.resolve({ path: p }) });
-      if (!res.ok && !(url.pathname === "/api/account/me" && res.status === 401))
+      if (
+        !res.ok &&
+        !(url.pathname === "/api/account/me" && res.status === 401)
+      )
         console.log(
           "API rejection",
           url.pathname,
@@ -141,7 +168,6 @@ const publicRoutes = process.env.QUICK_UI
       "/",
       "/products",
       "/products/baby-shampoo",
-      "/ingredients",
       "/about",
       "/cart",
       "/checkout",
@@ -151,6 +177,7 @@ const publicRoutes = process.env.QUICK_UI
       "/returns",
       "/privacy",
       "/terms",
+      "/distance-selling",
       "/track-order",
       "/account/login",
       "/account/register",
@@ -187,6 +214,18 @@ for (const width of process.env.QUICK_UI ? [] : [1440, 768, 390]) {
     checks++;
   }
   await page.goto("http://localhost:3000/");
+  assert.equal(await page.locator(".social-grid > a").count(), 3);
+  assert.equal(await page.locator('.social-grid img[src*="box"]').count(), 0);
+  assert.equal(await page.locator('a[href="/admin"]').count(), 0);
+  assert.equal(await page.locator('a[href="/ingredients"]').count(), 0);
+  assert.equal(
+    await page
+      .getByText(
+        /Ingredients|INCI|Key Ingredients|Our Ingredients|What.s Inside/i,
+      )
+      .count(),
+    0,
+  );
   await page.evaluate(() =>
     document
       .querySelectorAll('img[loading="lazy"]')
@@ -214,6 +253,7 @@ for (const width of process.env.QUICK_UI ? [] : [1440, 768, 390]) {
       throw e;
     });
   await page.waitForTimeout(900);
+  await revealPage();
   await page.screenshot({
     path: "var/ui/home-en-" + width + ".png",
     fullPage: true,
@@ -250,6 +290,7 @@ for (const width of process.env.QUICK_UI ? [] : [1440, 768, 390]) {
       throw e;
     });
   await page.waitForTimeout(700);
+  await revealPage();
   await page.screenshot({
     path: "var/ui/home-ar-" + width + ".png",
     fullPage: true,
@@ -283,6 +324,7 @@ await page.waitForURL("**/admin/dashboard").catch(async (e) => {
   throw e;
 });
 await page.getByRole("heading", { name: "Overview" }).waitFor();
+await page.screenshot({ path: "var/ui/admin-dashboard.png", fullPage: true });
 for (const route of [
   "products",
   "orders",
@@ -327,6 +369,36 @@ await db.query(
   "UPDATE inventory SET stock=12 WHERE product_id=(SELECT id FROM products WHERE slug='baby-shampoo')",
 );
 await page.goto("http://localhost:3000/products/baby-shampoo");
+assert.equal(await page.locator(".thumbnails > button").count(), 4);
+assert.equal(
+  await page
+    .getByText(
+      /Ingredients|INCI|Key Ingredients|Our Ingredients|What.s Inside/i,
+    )
+    .count(),
+  0,
+);
+await revealPage();
+await page.screenshot({ path: "var/ui/product-desktop.png", fullPage: true });
+await page.locator(".thumbnails > button").nth(1).click();
+await page
+  .locator(".gallery-main")
+  .getByText("One gentle step.", { exact: true })
+  .waitFor();
+assert.match(
+  String(await page.locator(".gallery-main img").getAttribute("src")),
+  /product-benefits-v2\.webp$/,
+);
+await page.screenshot({ path: "var/ui/product-benefits.png", fullPage: true });
+await page.locator(".thumbnails > button").nth(3).click();
+await page
+  .locator(".gallery-main")
+  .getByText("Three simple steps.", { exact: true })
+  .waitFor();
+assert.match(
+  String(await page.locator(".gallery-main img").getAttribute("src")),
+  /product-how-to-v2\.webp$/,
+);
 await page.getByRole("button", { name: "Add to bag", exact: true }).click();
 await page
   .getByRole("status")
@@ -352,13 +424,21 @@ await page.screenshot({
 
 await page.goto("http://localhost:3000/account/register");
 await page.getByLabel("Name", { exact: true }).fill("Browser Customer");
-await page.getByLabel("Email", { exact: true }).fill("browser-customer@example.invalid");
+await page
+  .getByLabel("Email", { exact: true })
+  .fill("browser-customer@example.invalid");
 await page.getByLabel("Mobile (optional)", { exact: true }).fill("01000000000");
-await page.getByLabel("New password", { exact: true }).fill("BrowserCustomer9!");
-await page.getByLabel("Confirm password", { exact: true }).fill("BrowserCustomer9!");
+await page
+  .getByLabel("New password", { exact: true })
+  .fill("BrowserCustomer9!");
+await page
+  .getByLabel("Confirm password", { exact: true })
+  .fill("BrowserCustomer9!");
 await page.getByRole("button", { name: "Create account", exact: true }).click();
 await page.waitForURL("**/account");
-await page.getByRole("heading", { name: "Welcome, Browser Customer." }).waitFor();
+await page
+  .getByRole("heading", { name: "Welcome, Browser Customer." })
+  .waitFor();
 checks++;
 
 await page.goto("http://localhost:3000/account/addresses");
@@ -374,9 +454,16 @@ checks++;
 
 await page.goto("http://localhost:3000/products/baby-shampoo");
 await page.getByRole("button", { name: "Add to bag", exact: true }).click();
-await page.getByRole("status").filter({ hasText: "Added to your bag." }).waitFor();
+await page
+  .getByRole("status")
+  .filter({ hasText: "Added to your bag." })
+  .waitFor();
 await page.goto("http://localhost:3000/checkout");
 await page.getByLabel("Saved address").waitFor();
+assert.equal(
+  await page.getByLabel("Pay Online Securely", { exact: true }).isEnabled(),
+  true,
+);
 await page.getByLabel("InstaPay", { exact: true }).check();
 await page.locator("input[name=acceptTerms]").check();
 await page.getByRole("button", { name: "Place order", exact: true }).click();
@@ -384,47 +471,94 @@ await page.waitForURL("**/order-success?id=*");
 await page.getByRole("img", { name: "InstaPay payment QR code" }).waitFor();
 await page.getByRole("button", { name: "Copy account", exact: true }).click();
 await page.getByRole("button", { name: "Copied", exact: true }).waitFor();
-await page.getByLabel("Transaction reference", { exact: true }).fill("BROWSER-REF-123");
-await page.getByRole("button", { name: "Submit reference", exact: true }).click();
+await page
+  .getByLabel("Transaction reference", { exact: true })
+  .fill("BROWSER-REF-123");
+await page
+  .getByRole("button", { name: "Submit reference", exact: true })
+  .click();
 await page.getByText("Submitted for verification.", { exact: true }).waitFor();
 checks += 2;
 
 await page.setViewportSize({ width: 390, height: 844 });
-assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Payment mobile overflow");
-await page.screenshot({ path: "var/ui/payment-instapay-mobile.png", fullPage: true });
+assert.equal(
+  await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+  false,
+  "Payment mobile overflow",
+);
+await page.screenshot({
+  path: "var/ui/payment-instapay-mobile.png",
+  fullPage: true,
+});
 await page.goto("http://localhost:3000/account");
-await page.getByRole("heading", { name: "Welcome, Browser Customer." }).waitFor();
-assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Account mobile overflow");
+await page
+  .getByRole("heading", { name: "Welcome, Browser Customer." })
+  .waitFor();
+assert.equal(
+  await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+  false,
+  "Account mobile overflow",
+);
 await page.screenshot({ path: "var/ui/account-mobile.png", fullPage: true });
 await page.goto("http://localhost:3000/account/orders");
 await page.getByRole("link", { name: "View details" }).first().click();
 await page.waitForURL("**/account/orders/*");
 await page.getByRole("heading", { name: "Order details" }).waitFor();
-assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Order detail mobile overflow");
-await page.screenshot({ path: "var/ui/account-order-mobile.png", fullPage: true });
+assert.equal(
+  await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+  false,
+  "Order detail mobile overflow",
+);
+await page.screenshot({
+  path: "var/ui/account-order-mobile.png",
+  fullPage: true,
+});
 checks += 3;
 
 await page.setViewportSize({ width: 768, height: 960 });
 await page.goto("http://localhost:3000/products/baby-shampoo");
 await page.getByRole("button", { name: "Add to bag", exact: true }).click();
-await page.getByRole("status").filter({ hasText: "Added to your bag." }).waitFor();
+await page
+  .getByRole("status")
+  .filter({ hasText: "Added to your bag." })
+  .waitFor();
 await page.goto("http://localhost:3000/checkout");
 await page.getByLabel("Saved address").waitFor();
 await page.getByLabel("Vodafone Cash", { exact: true }).check();
 await page.locator("input[name=acceptTerms]").check();
 await page.getByRole("button", { name: "Place order", exact: true }).click();
 await page.waitForURL("**/order-success?id=*");
-await page.getByRole("img", { name: "Vodafone Cash payment QR code" }).waitFor();
+await page
+  .getByRole("img", { name: "Vodafone Cash payment QR code" })
+  .waitFor();
 await page.getByRole("button", { name: "Copy number", exact: true }).click();
 await page.getByRole("button", { name: "Copied", exact: true }).waitFor();
-assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Vodafone tablet overflow");
-await page.screenshot({ path: "var/ui/payment-vodafone-tablet.png", fullPage: true });
+assert.equal(
+  await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+  false,
+  "Vodafone tablet overflow",
+);
+await page.screenshot({
+  path: "var/ui/payment-vodafone-tablet.png",
+  fullPage: true,
+});
 checks += 2;
 
 await page.emulateMedia({ reducedMotion: "reduce" });
 await page.goto("http://localhost:3000/");
-assert.equal(await page.evaluate(() => document.body.classList.contains("motion-ready")), false, "Reduced motion remains enabled");
-assert.equal(await page.locator("main > section").evaluateAll((nodes) => nodes.every((node) => node.classList.contains("is-visible"))), true);
+assert.equal(
+  await page.evaluate(() => document.body.classList.contains("motion-ready")),
+  false,
+  "Reduced motion remains enabled",
+);
+assert.equal(
+  await page
+    .locator("main > section")
+    .evaluateAll((nodes) =>
+      nodes.every((node) => node.classList.contains("is-visible")),
+    ),
+  true,
+);
 await page.emulateMedia({ reducedMotion: "no-preference" });
 checks++;
 assert.deepEqual(errors, []);

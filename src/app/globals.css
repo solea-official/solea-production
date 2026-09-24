@@ -427,43 +427,6 @@ textarea:focus-visible {
   margin-bottom: 35px;
   color: #78817b;
 }
-.chips {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 25px 0;
-}
-.chips > span {
-  border: 1px solid #aebca5;
-  border-radius: 24px;
-  padding: 5px 13px;
-  font-size: 12px;
-}
-.botanical-preview {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  border-block: 1px solid var(--line);
-}
-.botanical-preview > a {
-  padding: 28px 10px;
-  text-align: center;
-  border-inline-end: 1px solid var(--line);
-}
-.botanical-preview > a:last-child {
-  border: 0;
-}
-.botanical-art {
-  width: 105px;
-  height: 130px;
-  color: var(--olive);
-  transition: transform 0.5s;
-}
-.botanical-preview a:hover .botanical-art {
-  transform: translateY(-8px) rotate(3deg);
-}
-.botanical-preview h3 {
-  font-size: 24px;
-}
 .ritual {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -483,7 +446,7 @@ textarea:focus-visible {
 }
 .social-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 .social-grid a {
@@ -600,7 +563,7 @@ details[open] > p {
 }
 .footer-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  grid-template-columns: 1.35fr repeat(4, minmax(0, 1fr));
   gap: 45px;
   padding-top: 45px;
 }
@@ -618,6 +581,29 @@ details[open] > p {
   font-size: 13px;
   letter-spacing: 0.03em;
   margin-bottom: 22px;
+}
+.footer-grid .footer-subtitle {
+  margin-top: 28px;
+  margin-bottom: 12px;
+}
+.footer-payments {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  padding-top: 25px;
+  border-top: 1px solid #ffffff30;
+}
+.footer-payments h3,
+.footer-payments p {
+  margin: 0;
+}
+.footer-payments span {
+  display: inline-flex;
+  padding: 6px 13px;
+  border: 1px solid #ffffff55;
+  border-radius: 999px;
+  font-size: 13px;
 }
 .footer-bottom {
   display: flex;
@@ -687,9 +673,62 @@ details[open] > p {
   height: 100%;
   object-fit: contain;
   transition: transform 0.6s;
+  animation: gallery-switch 0.45s var(--ease-premium) both;
 }
 .gallery-main:hover img {
   transform: scale(1.035);
+}
+.gallery-copy {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  width: min(43%, 310px);
+  padding: clamp(15px, 2.5vw, 28px);
+  transform: translateY(-50%);
+  border: 1px solid rgba(79, 91, 45, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 253, 247, 0.91);
+  box-shadow: 0 18px 45px rgba(47, 56, 38, 0.1);
+  text-align: left;
+  pointer-events: none;
+  backdrop-filter: blur(7px);
+}
+.gallery-copy-left { left: 5%; }
+.gallery-copy-right { right: 5%; }
+.gallery-copy span {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--olive);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+.gallery-copy h3 {
+  margin-bottom: 15px;
+  font-size: clamp(1.35rem, 2.5vw, 2.35rem);
+  line-height: 1.03;
+}
+.gallery-copy p,
+.gallery-copy li {
+  color: var(--ink);
+  font-size: clamp(11px, 1.25vw, 14px);
+  line-height: 1.45;
+}
+.gallery-copy p + p { margin-top: 5px; }
+.gallery-copy strong {
+  display: inline-block;
+  margin-top: 17px;
+  color: var(--olive);
+  font-size: 13px;
+}
+.gallery-copy ol {
+  margin: 0;
+  padding-left: 18px;
+}
+.gallery-copy li + li { margin-top: 7px; }
+@keyframes gallery-switch {
+  from { opacity: 0.4; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
 }
 .thumbnails {
   display: flex;
@@ -780,42 +819,6 @@ details[open] > p {
   height: 100%;
   object-fit: contain;
 }
-.ingredients-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 25px;
-}
-.ingredients-grid article {
-  border: 1px solid var(--line);
-  background: #f9f8f0;
-  border-radius: 12px;
-  padding: 35px;
-  text-align: center;
-}
-.ingredients-grid article:nth-child(3n + 2) {
-  background: var(--blue);
-}
-.ingredients-grid article:nth-child(3n) {
-  background: #f7edef;
-}
-.ingredients-grid h2 {
-  font-size: 30px;
-  margin: 18px 0;
-}
-.ingredients-grid p {
-  font-size: 14px;
-  margin-top: 15px;
-}
-.latin {
-  font-size: 13px !important;
-}
-.botanical-banner {
-  width: 100%;
-  max-height: 420px;
-  object-fit: cover;
-  margin: 65px 0 45px;
-  border-radius: 12px;
-}
 .table-scroll {
   overflow: auto;
   width: 100%;
@@ -848,6 +851,35 @@ tr:hover td {
   white-space: pre-line;
   font-size: 18px;
   line-height: 1.95;
+}
+.legal-page {
+  display: grid;
+  gap: 28px;
+}
+.legal-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.legal-nav a {
+  padding: 8px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+}
+.legal-nav a[aria-current="page"] {
+  border-color: var(--olive);
+  background: var(--olive);
+  color: var(--cream);
+}
+.legal-draft {
+  padding: 16px 18px;
+  border-inline-start: 3px solid var(--kraft);
+  background: #f7f2e9;
+  color: var(--ink);
+  font-size: 14px;
 }
 .about-photo {
   margin: 40px 0;
@@ -1307,18 +1339,12 @@ textarea {
   transform: translateY(0);
   transition: opacity 0.75s var(--ease-premium), transform 0.75s var(--ease-premium);
 }
-.motion-ready .is-visible .ingredients-grid article,
-.motion-ready .is-visible .botanical-preview > a,
 .motion-ready .is-visible .social-grid > a,
 .motion-ready .is-visible .order-card {
   animation: rise 0.65s var(--ease-premium) both;
 }
-.motion-ready .is-visible .ingredients-grid article:nth-child(2),
-.motion-ready .is-visible .botanical-preview > a:nth-child(2),
 .motion-ready .is-visible .social-grid > a:nth-child(2),
 .motion-ready .is-visible .order-card:nth-child(2) { animation-delay: 0.08s; }
-.motion-ready .is-visible .ingredients-grid article:nth-child(3),
-.motion-ready .is-visible .botanical-preview > a:nth-child(3),
 .motion-ready .is-visible .social-grid > a:nth-child(3),
 .motion-ready .is-visible .order-card:nth-child(3) { animation-delay: 0.16s; }
 @keyframes shimmer {
@@ -1502,11 +1528,6 @@ textarea {
 .admin-main .input-row > strong {
   overflow-wrap: anywhere;
 }
-.inci {
-  font-family: Arial;
-  line-height: 1.9;
-  text-align: left;
-}
 @keyframes rise {
   from {
     opacity: 0;
@@ -1586,9 +1607,6 @@ html[dir="rtl"] summary {
 html[dir="rtl"] .product-card-copy h3 {
   font-size: 21px;
 }
-html[dir="rtl"] .botanical-preview h3 {
-  font-size: 22px;
-}
 html[dir="rtl"] .detail-copy h1 {
   font-size: clamp(2rem, 3vw, 3.2rem);
 }
@@ -1622,8 +1640,10 @@ html[dir="rtl"] .summary-card h2 {
     gap: 35px;
   }
   .footer-grid {
-    gap: 25px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 30px 25px;
   }
+  .footer-payments { grid-column: 1 / -1; }
   .newsletter-grid {
     gap: 30px;
   }
@@ -1673,24 +1693,12 @@ html[dir="rtl"] .summary-card h2 {
     width: min(100%, 320px);
     margin-inline: auto;
   }
-  .botanical-preview {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .botanical-preview > a:nth-child(3) {
-    border-inline-end: 0;
-  }
-  .botanical-preview > a:nth-child(-n + 3) {
-    border-bottom: 1px solid var(--line);
-  }
   .admin-layout {
     grid-template-columns: 170px minmax(0, 1fr);
     gap: 20px;
   }
   .image-editor {
     grid-template-columns: 1fr 1fr;
-  }
-  .ingredients-grid {
-    grid-template-columns: repeat(2, 1fr);
   }
   .newsletter-grid {
     grid-template-columns: 1fr;
@@ -1837,13 +1845,6 @@ html[dir="rtl"] .summary-card h2 {
   .product-photo {
     border-radius: 100px 100px 9px 9px;
   }
-  .botanical-preview h3 {
-    font-size: 22px;
-  }
-  .botanical-art {
-    width: 80px;
-    height: 104px;
-  }
   .ritual {
     grid-template-columns: 1fr;
   }
@@ -1855,8 +1856,9 @@ html[dir="rtl"] .summary-card h2 {
     padding: 45px 6%;
   }
   .social-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
+  .social-grid a:nth-child(even) { transform: none; }
   .faq-preview {
     grid-template-columns: 1fr;
     gap: 30px;
@@ -1909,30 +1911,29 @@ html[dir="rtl"] .summary-card h2 {
   .gallery {
     position: static;
   }
+  .gallery-copy {
+    width: 47%;
+    padding: 14px;
+    border-radius: 11px;
+  }
+  .gallery-copy h3 {
+    margin-bottom: 10px;
+    font-size: 1.25rem;
+  }
+  .gallery-copy span { margin-bottom: 7px; font-size: 8px; }
+  .gallery-copy strong { margin-top: 10px; font-size: 11px; }
+  .gallery-copy li + li { margin-top: 3px; }
+  .footer-payments {
+    align-items: start;
+    flex-direction: column;
+    gap: 10px;
+  }
   .detail-copy h1 {
     font-size: 38px;
   }
   .thumbnails img {
     width: 60px;
     height: 60px;
-  }
-  .ingredients-grid {
-    gap: 12px;
-  }
-  .ingredients-grid article {
-    padding: 25px 14px;
-  }
-  .ingredients-grid h2 {
-    font-size: 25px;
-  }
-  .ingredients-grid p {
-    font-size: 13px;
-  }
-  .ingredients-grid .latin {
-    overflow-wrap: anywhere;
-  }
-  .botanical-banner {
-    margin: 40px 0 30px;
   }
   .checkout-grid {
     grid-template-columns: 1fr;
@@ -2055,17 +2056,11 @@ html[dir="rtl"] .summary-card h2 {
   html[dir="rtl"] .featured-copy h2 {
     font-size: 29px;
   }
-  html[dir="rtl"] .botanical-preview h3 {
-    font-size: 19px;
-  }
   html[dir="rtl"] .detail-copy h1 {
     font-size: 30px;
   }
   html[dir="rtl"] .admin-main h1 {
     font-size: 27px;
-  }
-  html[dir="rtl"] .ingredients-grid h2 {
-    font-size: 22px;
   }
 }
 @media (max-width: 380px) {

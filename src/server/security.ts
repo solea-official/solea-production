@@ -58,24 +58,24 @@ export function setSession(res: NextResponse, s: Session) {
 }
 export function csrf(req: NextRequest, s: Session | null) {
   requireCondition(s, 401, "SESSION_REQUIRED");
-
-  const origin = req.headers.get("origin");
-  const appOrigin = new URL(config().APP_URL).origin;
-  const requestOrigin = req.nextUrl.origin;
-
   requireCondition(
-    !!origin && (origin === appOrigin || origin === requestOrigin),
+    req.headers.get("origin") === new URL(config().APP_URL).origin,
     403,
     "CSRF_REJECTED",
   );
-
   const raw = req.headers.get("x-csrf-token") || "";
-
   requireCondition(
     raw.length === 64 && hash(raw) === s.csrf_hash,
     403,
     "CSRF_REJECTED",
   );
+}
+function rateKey(req: NextRequest, scope: string, identity: string) {
+  const ip =
+    process.env.TRUST_PROXY === "true"
+      ? req.headers.get("x-real-ip") || "unknown"
+      : "direct";
+  return hash(`${scope}:${ip}:${identity}`);
 }
 export async function rate(
   req: NextRequest,
@@ -84,11 +84,7 @@ export async function rate(
   seconds: number,
   identity = "",
 ) {
-  const ip =
-    process.env.TRUST_PROXY === "true"
-      ? req.headers.get("x-real-ip") || "unknown"
-      : "direct";
-  const key = hash(scope + ":" + ip + ":" + identity);
+  const key = rateKey(req, scope, identity);
   const r = await pool.query(
     `INSERT INTO rate_limits(key,count,expires_at) VALUES($1,1,now()+$2::interval) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN rate_limits.expires_at<now() THEN 1 ELSE rate_limits.count+1 END,expires_at=CASE WHEN rate_limits.expires_at<now() THEN now()+$2::interval ELSE rate_limits.expires_at END RETURNING count`,
     [key, seconds + " seconds"],
@@ -127,6 +123,9 @@ export async function login(req: NextRequest, email: string, password: string) {
     });
     throw new AppError(401, "INVALID_LOGIN");
   }
+  await pool.query("DELETE FROM rate_limits WHERE key=$1", [
+    rateKey(req, "login-account", email),
+  ]);
   const old = await session(req);
   const s = await newSession(u.id);
   await transaction(async (db) => {

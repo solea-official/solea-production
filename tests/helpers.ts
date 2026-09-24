@@ -68,6 +68,9 @@ const testPool = {
 (globalThis as unknown as { soleaPool: Pool }).soleaPool =
   testPool as unknown as Pool;
 const stored = new Map<string, Buffer>();
+export function storedObject(bucket: string, path: string) {
+  return stored.get(`${bucket}/${path}`);
+}
 (globalThis as unknown as { soleaStorageProvider: unknown }).soleaStorageProvider = {
   async upload(bucket: string, path: string, data: Buffer) {
     stored.set(`${bucket}/${path}`, data);

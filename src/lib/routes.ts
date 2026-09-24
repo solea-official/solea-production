@@ -1,7 +1,6 @@
 export const publicPages: Record<string, string> = {
   "": "Home",
   products: "Products",
-  ingredients: "Ingredients",
   about: "About SOLÉA",
   cart: "Shopping bag",
   checkout: "Checkout",
@@ -13,6 +12,7 @@ export const publicPages: Record<string, string> = {
   returns: "Returns",
   privacy: "Privacy",
   terms: "Terms",
+  "distance-selling": "Distance selling",
   "account/login": "Sign in",
   "account/register": "Create account",
   "account/forgot": "Reset password",
