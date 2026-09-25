@@ -699,6 +699,60 @@ export function Information({ page, data }: { page: string; data: StoreData }) {
         </div>
       </>
     );
+  if (page === "about")
+    return (
+      <>
+        <PageTitle title="Our Story" eyebrow="SOLÉA" />
+        <section className="section wrap narrow compact about-story">
+          <p className="about-story-lead">
+            Born from a mother’s love. Created with every child’s needs in mind.
+          </p>
+          <div className="about-story-body">
+            <p>Soléa’s story began with motherhood.</p>
+            <p>
+              As a mother, I began to question the products I used for my baby and look for gentle, trustworthy, and thoughtfully crafted care products. What started as a personal search gradually became a dream: to create a brand that cares not only for our own children, but for the unique needs of every child.
+            </p>
+            <p>
+              Because we know that every child is different. For children with special needs and their families, everyday care can carry an even deeper meaning—one that requires greater sensitivity, understanding, and trust.
+            </p>
+            <p>
+              That is why we created Soléa with love and care, keeping children with different needs and their families in mind.
+            </p>
+            <p>
+              Soléa Baby was created to bring together nature-inspired ingredients, thoughtful formulation, and a mother’s care, with the delicate needs of babies and children at the heart of everything we do.
+            </p>
+            <p>
+              For us, care is about more than simply cleansing.
+              <br />
+              It means being gentle, building trust, and respecting every child’s unique world.
+            </p>
+          </div>
+          <p className="about-story-emphasis">
+            Clean ingredients. Gentle care. A mother’s love.
+          </p>
+          <p className="about-story-reflection">
+            Because we know that
+            <br />
+            every mother wants the very best for her baby. And that is exactly the feeling with which we created Soléa.
+          </p>
+          <p className="about-story-closing">
+            <strong>Soléa Baby</strong>
+            <span>Every child is special. Every touch, with love.</span>
+          </p>
+          <img
+            className="about-photo"
+            src="/media/box.png"
+            alt={t("SOLÉA kraft packaging", "علبة SOLÉA الكرافت")}
+            width="1000"
+            height="900"
+          />
+          <Link href="/products" className="button">
+            {t("Explore our products", "اكتشفي منتجاتنا")}
+            <Icon />
+          </Link>
+        </section>
+      </>
+    );
   return (
     <>
       <PageTitle
@@ -735,21 +789,6 @@ export function Information({ page, data }: { page: string; data: StoreData }) {
           </>
         )}
         <p className="prose">{t(entry?.body_en || "", entry?.body_ar || "")}</p>
-        {page === "about" && (
-          <>
-            <img
-              className="about-photo"
-              src="/media/box.png"
-              alt={t("SOLÉA kraft packaging", "علبة SOLÉA الكرافت")}
-              width="1000"
-              height="900"
-            />
-            <Link href="/products" className="button">
-              {t("Explore our products", "اكتشفي منتجاتنا")}
-              <Icon />
-            </Link>
-          </>
-        )}
       </section>
     </>
   );
