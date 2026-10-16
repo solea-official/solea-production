@@ -57,7 +57,6 @@ import {
   beginEnrollment,
   enroll,
   mfaStatus,
-  regenerateRecovery,
   verifyMfa,
 } from "@/server/admin-mfa";
 export const runtime = "nodejs";
@@ -162,7 +161,7 @@ async function handler(
       csrf(req, s);
       const data = z.object({ code: z.string().regex(/^\d{6}$/) }).strict().parse(await body());
       const verified = await enroll(req, data.code);
-      const response = result({ ok: true, recoveryCodes: verified.recoveryCodes, csrf: sign(verified.next.raw) });
+      const response = result({ ok: true, csrf: sign(verified.next.raw) });
       setSession(response, verified.next);
       return response;
     }
@@ -171,24 +170,16 @@ async function handler(
       csrf(req, s);
       const data = z
         .object({
-          code: z.string().regex(/^\d{6}$/).optional(),
-          recoveryCode: z.string().trim().min(8).max(32).optional(),
+          code: z.string().regex(/^\d{6}$/),
         })
         .strict()
-        .refine((value) => Number(!!value.code) + Number(!!value.recoveryCode) === 1)
         .parse(await body());
       const verified = await verifyMfa(req, data);
       const response = result({ ok: true, csrf: sign(verified.next.raw) });
       setSession(response, verified.next);
       return response;
     }
-    if (endpoint === "auth/mfa/recovery" && method === "POST") {
-      const data = z
-        .object({ password: z.string().min(1).max(72), code: z.string().regex(/^\d{6}$/) })
-        .strict()
-        .parse(await body());
-      return result(await regenerateRecovery(req, data.password, data.code));
-    }
+    if (endpoint.startsWith("auth/mfa/")) throw new AppError(404, "NOT_FOUND");
     if (endpoint === "auth/logout" && method === "POST") {
       const s = await session(req);
       csrf(req, s);

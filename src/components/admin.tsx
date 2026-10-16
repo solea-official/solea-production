@@ -19,8 +19,7 @@ export function Login() {
     [forgot, setForgot] = useState(false),
     [done, setDone] = useState(false),
     [mfa, setMfa] = useState<"" | "enroll" | "totp">(""),
-    [setup, setSetup] = useState<{ qr: string; manualKey: string } | null>(null),
-    [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+    [setup, setSetup] = useState<{ qr: string; manualKey: string } | null>(null);
   return (
     <section className="admin-login section wrap">
       <div className="panel">
@@ -43,21 +42,14 @@ export function Login() {
             const f = Object.fromEntries(new FormData(e.currentTarget));
             try {
               if (mfa) {
-                const response = await api<{ recoveryCodes?: string[] }>(
+                await api(
                   mfa === "enroll" ? "auth/mfa/enroll" : "auth/mfa/verify",
                   "POST",
-                  f.recoveryCode
-                    ? { recoveryCode: f.recoveryCode }
-                    : { code: f.code },
+                  { code: f.code },
                 );
-                if (response.recoveryCodes?.length) {
-                  setRecoveryCodes(response.recoveryCodes);
-                  setSetup(null);
-                  setDone(true);
-                } else {
-                  router.push("/ops-portal/dashboard");
-                  router.refresh();
-                }
+                setSetup(null);
+                router.push("/ops-portal/dashboard");
+                router.refresh();
               } else if (reset) {
                 await api("auth/reset", "POST", {
                   token: reset,
@@ -123,7 +115,7 @@ export function Login() {
               <code dir="ltr">{setup.manualKey}</code>
             </div>
           )}
-          {mfa && !done && <><label>{t("Authenticator code", "رمز تطبيق المصادقة")}<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required={mfa === "enroll"} dir="ltr" /></label>{mfa === "totp" && <label>{t("Or recovery code", "أو رمز الاسترداد")}<input name="recoveryCode" autoComplete="one-time-code" minLength={8} maxLength={32} dir="ltr" /></label>}</>}
+          {mfa && !done && <label>{t("Authenticator code", "رمز تطبيق المصادقة")}<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required dir="ltr" /></label>}
           {(!mfa || !done) && <button className="button full" disabled={busy}>
             {t(
               mfa ? "Verify" : reset ? "Update password" : forgot ? "Request reset" : "Sign in",
@@ -150,7 +142,6 @@ export function Login() {
                 )}
           </p>
         )}
-        {recoveryCodes.length > 0 && <div className="notice"><strong>{t("Save these recovery codes now. They will not be shown again.", "احفظ رموز الاسترداد الآن. لن تظهر مرة أخرى.")}</strong><ul>{recoveryCodes.map((code) => <li key={code}><code dir="ltr">{code}</code></li>)}</ul><button className="button" onClick={() => { router.push("/ops-portal/dashboard"); router.refresh(); }}>{t("Continue", "متابعة")}</button></div>}
         {error && <ErrorMessage code={error} />}
         <button
           className="text-link"
@@ -397,19 +388,7 @@ export function Admin({
             <p className="notice success">
               {t("Required and enabled for this privileged account.", "التحقق بخطوتين مطلوب ومفعّل لهذا الحساب ذي الصلاحيات.")}
             </p>
-            <form onSubmit={async (event) => {
-              event.preventDefault();
-              setError("");
-              try {
-                const result = await api<{ recoveryCodes: string[] }>("auth/mfa/recovery", "POST", Object.fromEntries(new FormData(event.currentTarget)));
-                setData({ ...(data as Row), recoveryCodes: result.recoveryCodes });
-              } catch (cause) { setError((cause as Error).message); }
-            }}>
-              <label>{t("Current password", "كلمة المرور الحالية")}<input name="password" type="password" autoComplete="current-password" required maxLength={72} /></label>
-              <label>{t("Authenticator code", "رمز تطبيق المصادقة")}<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required /></label>
-              <button className="button">{t("Regenerate recovery codes", "إعادة إنشاء رموز الاسترداد")}</button>
-            </form>
-            {Array.isArray((data as Row).recoveryCodes) && <div className="notice"><strong>{t("Save these codes now. Previous codes are invalid.", "احفظ هذه الرموز الآن. الرموز السابقة أصبحت غير صالحة.")}</strong><ul>{((data as Row).recoveryCodes as string[]).map((code) => <li key={code}><code dir="ltr">{code}</code></li>)}</ul></div>}
+
           </div>
         )}
         {section === "content" && data !== null && (

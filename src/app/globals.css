@@ -884,6 +884,13 @@ tr:hover td {
   font-size: clamp(1rem, 1.5vw, 1.15rem);
   line-height: 1.6;
 }
+.about-story[dir="rtl"] .about-story-lead,
+.about-story[dir="rtl"] .about-story-emphasis,
+.about-story[dir="rtl"] .about-story-closing strong {
+  font-family: Tahoma, Arial, sans-serif;
+  line-height: 1.7;
+}
+
 .contact-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

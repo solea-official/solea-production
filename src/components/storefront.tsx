@@ -222,7 +222,7 @@ export function Home({
           )}
         </p>
         <Link href="/about" className="text-link">
-          {t("Our story", "حكايتنا")}
+          {t("Our Story", "حكايتنا")}
           <Icon />
         </Link>
       </section>
@@ -637,7 +637,7 @@ export function ProductDetail({
   );
 }
 export function Information({ page, data }: { page: string; data: StoreData }) {
-  const { t } = useStore();
+  const { t, locale } = useStore();
   const entry = data.content.find((x) => x.key === page);
   const legalPages = ["privacy", "terms", "returns", "shipping-policy", "distance-selling"];
   if (page === "contact")
@@ -702,42 +702,42 @@ export function Information({ page, data }: { page: string; data: StoreData }) {
   if (page === "about")
     return (
       <>
-        <PageTitle title="Our Story" eyebrow="SOLÉA" />
-        <section className="section wrap narrow compact about-story">
+        <PageTitle title={t("Our Story", "حكايتنا")} eyebrow="SOLÉA" />
+        <section className="section wrap narrow compact about-story" lang={locale} dir={locale === "ar" ? "rtl" : "ltr"}>
           <p className="about-story-lead">
-            Born from a mother’s love. Created with every child’s needs in mind.
+            {t("Born from a mother’s love. Created with every child’s needs in mind.", "وُلدت من حب أم. وصُنعت لتراعي احتياجات كل طفل.")}
           </p>
           <div className="about-story-body">
-            <p>Soléa’s story began with motherhood.</p>
+            <p>{t("Soléa’s story began with motherhood.", "بدأت حكاية Soléa مع الأمومة.")}</p>
             <p>
-              As a mother, I began to question the products I used for my baby and look for gentle, trustworthy, and thoughtfully crafted care products. What started as a personal search gradually became a dream: to create a brand that cares not only for our own children, but for the unique needs of every child.
+              {t("As a mother, I began to question the products I used for my baby and look for gentle, trustworthy, and thoughtfully crafted care products. What started as a personal search gradually became a dream: to create a brand that cares not only for our own children, but for the unique needs of every child.", "كأم، بدأت أتساءل عن المنتجات التي أستخدمها لطفلي، وأبحث عن منتجات عناية لطيفة، جديرة بالثقة، ومصنوعة بعناية مدروسة. وما بدأ كبحث شخصي تحوّل تدريجيًا إلى حلم: أن نؤسس علامة تهتم ليس فقط بأطفالنا، بل بالاحتياجات الفريدة لكل طفل.")}
             </p>
             <p>
-              Because we know that every child is different. For children with special needs and their families, everyday care can carry an even deeper meaning—one that requires greater sensitivity, understanding, and trust.
+              {t("Because we know that every child is different. For children with special needs and their families, everyday care can carry an even deeper meaning—one that requires greater sensitivity, understanding, and trust.", "لأننا نعرف أن كل طفل مختلف. وبالنسبة للأطفال ذوي الاحتياجات الخاصة وأسرهم، قد تحمل العناية اليومية معنى أعمق، يتطلب مزيدًا من مراعاة احتياجاتهم، والتفهّم، والثقة.")}
             </p>
             <p>
-              That is why we created Soléa with love and care, keeping children with different needs and their families in mind.
+              {t("That is why we created Soléa with love and care, keeping children with different needs and their families in mind.", "لهذا أنشأنا Soléa بحب وعناية، واضعين في اعتبارنا الأطفال باختلاف احتياجاتهم وأسرهم.")}
             </p>
             <p>
-              Soléa Baby was created to bring together nature-inspired ingredients, thoughtful formulation, and a mother’s care, with the delicate needs of babies and children at the heart of everything we do.
+              {t("Soléa Baby was created to bring together nature-inspired ingredients, thoughtful formulation, and a mother’s care, with the delicate needs of babies and children at the heart of everything we do.", "أُنشئت Soléa Baby لتجمع بين مكونات مستوحاة من الطبيعة، وتركيبة مدروسة، وعناية أم، مع وضع احتياجات الرضّع والأطفال الدقيقة في قلب كل ما نقوم به.")}
             </p>
             <p>
-              For us, care is about more than simply cleansing.
+              {t("For us, care is about more than simply cleansing.", "بالنسبة لنا، العناية أكثر من مجرد تنظيف.")}
               <br />
-              It means being gentle, building trust, and respecting every child’s unique world.
+              {t("It means being gentle, building trust, and respecting every child’s unique world.", "إنها تعني اللطف، وبناء الثقة، واحترام عالم كل طفل الفريد.")}
             </p>
           </div>
           <p className="about-story-emphasis">
-            Clean ingredients. Gentle care. A mother’s love.
+            {t("Clean ingredients. Gentle care. A mother’s love.", "مكونات نقية. عناية لطيفة. حب أم.")}
           </p>
           <p className="about-story-reflection">
-            Because we know that
+            {t("Because we know that", "لأننا نعرف أن")}
             <br />
-            every mother wants the very best for her baby. And that is exactly the feeling with which we created Soléa.
+            {t("every mother wants the very best for her baby. And that is exactly the feeling with which we created Soléa.", "كل أم تريد الأفضل لطفلها. وهذا هو الشعور نفسه الذي أنشأنا به Soléa.")}
           </p>
           <p className="about-story-closing">
             <strong>Soléa Baby</strong>
-            <span>Every child is special. Every touch, with love.</span>
+            <span>{t("Every child is special. Every touch, with love.", "كل طفل مميّز. وكل لمسة، بحب.")}</span>
           </p>
           <Link href="/products" className="button">
             {t("Explore our products", "اكتشفي منتجاتنا")}

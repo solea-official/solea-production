@@ -1,3 +1,4 @@
+import { mock } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -93,7 +94,6 @@ export function storedObject(bucket: string, path: string) {
 export const db = (await import("../src/server/db")).pool;
 export const route = await import("../src/app/api/[...path]/route");
 export type Client = { cookie: string; csrf: string };
-const adminRecoveryCodes = new Map<string, string[]>();
 export async function request(
   client: Client | null,
   path: string,
@@ -182,22 +182,25 @@ export async function auth(email: string, password: string) {
     c.cookie = enrolled.headers.get("set-cookie")!.split(";")[0];
     const enrolledData = await enrolled.json();
     c.csrf = enrolledData.csrf;
-    adminRecoveryCodes.set(email, enrolledData.recoveryCodes || []);
   } else {
     const row = (
       await db.query(
-        "SELECT id,totp_ciphertext,totp_last_counter,recovery_hashes FROM admin_users WHERE email=$1",
+        "SELECT id,totp_ciphertext,totp_last_counter FROM admin_users WHERE email=$1",
         [email],
       )
     ).rows[0];
     const { decryptMfa, totpCode } = await import("../src/server/totp");
-    const counter = Math.floor(Date.now() / 30_000);
-    const codes = adminRecoveryCodes.get(email) || [];
-    const payload =
-      Number(row.totp_last_counter) < counter
-        ? { code: totpCode(decryptMfa(row.totp_ciphertext, row.id), counter) }
-        : { recoveryCode: codes.shift() || "fixture-code-unavailable" };
-    const verified = await request(c, "auth/mfa/verify", "POST", payload);
+    // Move only the fixture clock to a fresh TOTP interval; replay protection stays active.
+    const counter = Math.max(Math.floor(Date.now() / 30_000), Number(row.totp_last_counter) + 1);
+    const clock = mock.method(Date, "now", () => counter * 30_000);
+    let verified: Response;
+    try {
+      verified = await request(c, "auth/mfa/verify", "POST", {
+        code: totpCode(decryptMfa(row.totp_ciphertext, row.id), counter),
+      });
+    } finally {
+      clock.mock.restore();
+    }
     if (!verified.ok) throw new Error("Fixture MFA verification failure " + (await verified.text()));
     c.cookie = verified.headers.get("set-cookie")!.split(";")[0];
     c.csrf = (await verified.json()).csrf;

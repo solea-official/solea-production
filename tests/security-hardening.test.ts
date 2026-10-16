@@ -1,7 +1,8 @@
-import { after, test } from "node:test";
+import { after, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { PGlite } from "@electric-sql/pglite";
 import bcrypt from "bcryptjs";
 import { NextRequest } from "next/server";
 import {
@@ -12,7 +13,7 @@ import {
   engine,
   request,
 } from "./helpers";
-import { totpCode } from "../src/server/totp";
+import { decryptMfa, encryptMfa, totpCode } from "../src/server/totp";
 
 const { proxy } = await import("../src/proxy");
 
@@ -64,7 +65,7 @@ test("password-only admin session is pending until mandatory TOTP succeeds", asy
   const enrolled = await request(c, "auth/mfa/enroll", "POST", { code });
   assert.equal(enrolled.status, 200);
   const enrolledBody = await enrolled.json();
-  assert.equal(enrolledBody.recoveryCodes.length, 10);
+  assert.deepEqual(Object.keys(enrolledBody).sort(), ["csrf", "ok"]);
   c.cookie = enrolled.headers.get("set-cookie")!.split(";")[0];
   c.csrf = enrolledBody.csrf;
   assert.equal((await request(c, "admin/dashboard")).status, 200);
@@ -92,22 +93,44 @@ test("password-only admin session is pending until mandatory TOTP succeeds", asy
   const secondPassword = await request(c, "auth/login", "POST", { email, password });
   c.cookie = secondPassword.headers.get("set-cookie")!.split(";")[0];
   c.csrf = (await secondPassword.json()).csrf;
-  const recovery = enrolledBody.recoveryCodes[0];
-  const recovered = await request(c, "auth/mfa/verify", "POST", { recoveryCode: recovery });
-  assert.equal(recovered.status, 200);
-  c.cookie = recovered.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = (await recovered.json()).csrf;
-
+  assert.equal((await request(c, "admin/dashboard")).status, 401);
+  assert.equal(
+    (await request(c, "auth/mfa/verify", "POST", { recoveryCode: "old-test-backup-code" })).status,
+    400,
+  );
+  assert.equal(
+    (await request(c, "auth/mfa/verify", "POST", { code, recoveryCode: "old-test-backup-code" })).status,
+    400,
+  );
+  assert.equal((await request(c, "admin/dashboard")).status, 401);
+  // Previously enrolled authenticator remains valid; accepted codes cannot be replayed.
+  assert.equal((await request(c, "auth/mfa/verify", "POST", { code })).status, 401);
+  const counter = Math.floor(Date.now() / 30_000) + 1;
+  const clock = mock.method(Date, "now", () => counter * 30_000);
+  let verified: Response;
+  try {
+    verified = await request(c, "auth/mfa/verify", "POST", {
+      code: totpCode(decodeBase32(setup.manualKey), counter),
+    });
+  } finally {
+    clock.mock.restore();
+  }
+  assert.equal(verified.status, 200);
+  assert.deepEqual(Object.keys(await verified.clone().json()).sort(), ["csrf", "ok"]);
+  c.cookie = verified.headers.get("set-cookie")!.split(";")[0];
+  c.csrf = (await verified.json()).csrf;
+  assert.equal((await request(c, "admin/dashboard")).status, 200);
+  for (const actor of [null, await client(), await customerClient(), c]) {
+    for (const method of ["GET", "POST"]) {
+      assert.equal((await request(actor, "auth/mfa/recovery", method, method === "POST" ? {} : undefined)).status, 404);
+    }
+  }
   const logoutAgain = await request(c, "auth/logout", "POST", {});
   c.cookie = logoutAgain.headers.get("set-cookie")!.split(";")[0];
   c.csrf = (await logoutAgain.json()).csrf;
   const thirdPassword = await request(c, "auth/login", "POST", { email, password });
   c.cookie = thirdPassword.headers.get("set-cookie")!.split(";")[0];
   c.csrf = (await thirdPassword.json()).csrf;
-  assert.equal(
-    (await request(c, "auth/mfa/verify", "POST", { recoveryCode: recovery })).status,
-    401,
-  );
   await clearRates();
   for (let attempt = 0; attempt < 5; attempt += 1)
     assert.equal(
@@ -200,4 +223,33 @@ test("Vercel Hobby maintenance cron runs no more than once daily", async () => {
   assert.deepEqual(vercel.crons, [
     { path: "/api/internal/maintenance", schedule: "0 3 * * *" },
   ]);
+});
+
+test("migration 008 removes only backup storage and preserves existing encrypted TOTP", async () => {
+  const upgrade = new PGlite();
+  try {
+    for (const file of (await readdir("migrations")).filter((x) => x.endsWith(".sql") && x < "008").sort())
+      await upgrade.exec(await readFile("migrations/" + file, "utf8"));
+    const id = randomUUID();
+    const secret = randomBytes(20);
+    const ciphertext = encryptMfa(secret, id);
+    const counter = Math.floor(Date.now() / 30_000);
+    await upgrade.query(
+      "INSERT INTO admin_users(id,email,password_hash,role_id,totp_ciphertext,totp_enabled,totp_last_counter,recovery_hashes) VALUES($1,'upgrade@example.invalid','fixture','owner',$2,true,$3,$4)",
+      [id, ciphertext, counter - 1, JSON.stringify([randomBytes(32).toString("hex")])],
+    );
+    await upgrade.exec(await readFile("migrations/008_remove_admin_mfa_recovery_codes.sql", "utf8"));
+    const row = (await upgrade.query<{totp_ciphertext: string; totp_enabled: boolean; totp_last_counter: number}>(
+      "SELECT totp_ciphertext,totp_enabled,totp_last_counter FROM admin_users WHERE id=$1", [id],
+    )).rows[0];
+    assert.equal(row.totp_ciphertext, ciphertext);
+    assert.equal(row.totp_enabled, true);
+    assert.equal(Number(row.totp_last_counter), counter - 1);
+    assert.deepEqual(decryptMfa(row.totp_ciphertext, id), secret);
+    const { verifyTotp } = await import("../src/server/totp");
+    assert.equal(verifyTotp(decryptMfa(row.totp_ciphertext, id), totpCode(secret, counter), Number(row.totp_last_counter)), counter);
+    assert.equal((await upgrade.query("SELECT column_name FROM information_schema.columns WHERE table_name='admin_users' AND column_name='recovery_hashes'")).rows.length, 0);
+  } finally {
+    await upgrade.close();
+  }
 });

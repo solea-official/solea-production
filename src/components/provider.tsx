@@ -63,7 +63,7 @@ export function Shell({
   const links = [
     ["/", "Home", "الرئيسية"],
     ["/products", "Shop", "المنتجات"],
-    ["/about", "Our story", "حكايتنا"],
+    ["/about", "Our Story", "حكايتنا"],
     ["/contact", "Contact", "تواصل معنا"],
   ];
   function toggle() {
@@ -163,7 +163,7 @@ export function Shell({
             </div>
             <div>
               <h3>{t("Company", "الشركة")}</h3>
-              <Link href="/about">{t("Our story", "حكايتنا")}</Link>
+              <Link href="/about">{t("Our Story", "حكايتنا")}</Link>
               <Link href="/products">{t("Shop", "المنتجات")}</Link>
               <h3 className="footer-subtitle">{t("Social media", "التواصل الاجتماعي")}</h3>
               <a
