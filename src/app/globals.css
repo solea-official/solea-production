@@ -2114,3 +2114,12 @@ html[dir="rtl"] .summary-card h2 {
     transform: none;
   }
 }
+
+.admin-destructive { background: #9b2c2c; color: #fff; border-color: #9b2c2c; }
+.admin-destructive:hover { background: #7d2323; border-color: #7d2323; }
+.admin-delete-dialog { width: min(34rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; margin: auto; padding: clamp(1.25rem, 4vw, 2rem); border: 1px solid var(--line); border-radius: 12px; background: var(--cream); color: var(--ink); }
+.admin-delete-dialog::backdrop { background: rgb(25 35 24 / 48%); }
+.admin-delete-dialog h2 { font-size: 1.8rem; }
+.admin-delete-dialog dd { margin: 0 0 1rem; overflow-wrap: anywhere; }
+.admin-delete-dialog dt { font-weight: 600; }
+.admin-delete-dialog .actions { flex-wrap: wrap; }

@@ -1,3 +1,4 @@
+import { deleteAdminAccount, lockAccountManager, protectLastManager } from "./admin-accounts";
 import { boundedBody } from "./http";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -25,6 +26,10 @@ export async function adminApi(
 ) {
   const [, resource, id, action, childId] = parts;
   const method = req.method;
+  if (resource === "users" && method === "DELETE") {
+    requireCondition(parts.length === 3, 404, "NOT_FOUND");
+    return deleteAdminAccount(req, id, body);
+  }
   const permission = (
     {
       products: "products",
@@ -348,7 +353,7 @@ export async function adminApi(
       if (id) {
         const o = (
           await pool.query(
-            "SELECT o.*,c.name,c.email,c.mobile,a.governorate,a.city,a.street,a.building,a.floor,a.apartment,p.status payment_status,p.provider_id payment_provider,p.provider_order_id,p.provider_transaction_id,p.transfer_reference,p.proof_storage_path,p.verified_at,p.rejection_reason,v.email payment_verified_by,s.status shipping_status,s.tracking_id FROM orders o JOIN customers c ON c.id=o.customer_id JOIN addresses a ON a.id=o.address_id JOIN payments p ON p.order_id=o.id LEFT JOIN admin_users v ON v.id=p.verified_by JOIN shipments s ON s.order_id=o.id WHERE o.id=$1",
+            "SELECT o.*,c.name,c.email,c.mobile,a.governorate,a.city,a.street,a.building,a.floor,a.apartment,p.status payment_status,p.provider_id payment_provider,p.provider_order_id,p.provider_transaction_id,p.transfer_reference,p.proof_storage_path,p.verified_at,p.rejection_reason,v.email payment_verified_by,s.status shipping_status,s.tracking_id FROM orders o JOIN customers c ON c.id=o.customer_id JOIN addresses a ON a.id=o.address_id JOIN payments p ON p.order_id=o.id LEFT JOIN admin_identities v ON v.id=p.verified_by JOIN shipments s ON s.order_id=o.id WHERE o.id=$1",
             [id],
           )
         ).rows[0];
@@ -479,7 +484,7 @@ export async function adminApi(
     requireCondition(method === "GET", 405, "METHOD_NOT_ALLOWED");
     return (
       await pool.query(
-        "SELECT l.*,a.email actor FROM audit_logs l LEFT JOIN admin_users a ON a.id=l.actor_id ORDER BY l.created_at DESC LIMIT 200",
+        "SELECT l.*,a.email actor FROM audit_logs l LEFT JOIN admin_identities a ON a.id=l.actor_id ORDER BY l.created_at DESC LIMIT 200",
       )
     ).rows;
   }
@@ -539,12 +544,16 @@ export async function adminApi(
         })
         .strict()
         .parse(await body());
-      const r = await pool.query(
-        "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,$3) RETURNING id",
-        [d.email, await bcrypt.hash(d.password, 14), d.role],
-      );
-      await audit(pool, user.id, "admin.create", "admin_users", r.rows[0].id);
-      return { id: r.rows[0].id };
+      const passwordHash = await bcrypt.hash(d.password, 14);
+      return transaction(async (db) => {
+        await lockAccountManager(db, user.id, s);
+        const r = await db.query(
+          "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,$3) RETURNING id",
+          [d.email, passwordHash, d.role],
+        );
+        await audit(db, user.id, "admin.create", "admin_users", r.rows[0].id);
+        return { id: r.rows[0].id };
+      });
     }
     if (method === "PUT") {
       requireRecentMfa();
@@ -558,6 +567,9 @@ export async function adminApi(
         .parse(await body());
       requireCondition(id !== user.id, 409, "SELF_CHANGE_FORBIDDEN");
       await transaction(async (db) => {
+        await lockAccountManager(db, user.id, s);
+        const retainsPermission = (await db.query("SELECT permissions FROM roles WHERE id=$1", [d.role])).rows[0]?.permissions.includes("users");
+        if (!d.active || !retainsPermission) await protectLastManager(db, id);
         await db.query(
           "UPDATE admin_users SET active=$1,role_id=$2 WHERE id=$3",
           [d.active, d.role, id],

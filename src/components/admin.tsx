@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, parseMoney, currency } from "@/lib/api";
 import { Product } from "@/lib/types";
 import { useStore, ErrorMessage } from "./provider";
@@ -413,6 +413,8 @@ export function Admin({
         )}
         {section === "users" && data !== null && (
           <Users
+            user={user}
+            onDeleted={load}
             rows={rows}
             save={(url, method, d) => mutate(url, method, d)}
           />
@@ -1510,13 +1512,19 @@ function CouponEditor({
 function Users({
   rows,
   save,
+  user,
+  onDeleted,
 }: {
   rows: Row[];
   save: (url: string, method: string, d?: unknown) => Promise<boolean>;
+  user: { email: string; permissions: string[] };
+  onDeleted: () => void;
 }) {
   const { t } = useStore();
+  const [deleting, setDeleting] = useState<Row | null>(null);
   return (
     <>
+      {deleting && <DeleteAdminDialog target={deleting} onClose={() => setDeleting(null)} onDeleted={onDeleted} />}
       <DataTable rows={rows} columns={["email", "role_id", "active"]} />
       {rows.map((r) => (
         <form
@@ -1552,6 +1560,11 @@ function Users({
           >
             {t("Revoke sessions", "إنهاء الجلسات")}
           </button>
+          {user.permissions.includes("users") && str(r.email) !== user.email && (
+            <button type="button" className="button admin-destructive" onClick={() => setDeleting(r)}>
+              {t("Delete Admin", "حذف المسؤول")}
+            </button>
+          )}
         </form>
       ))}
       <form
@@ -1592,5 +1605,55 @@ function Users({
         </button>
       </form>
     </>
+  );
+}
+
+function DeleteAdminDialog({ target, onClose, onDeleted }: {
+  target: Row; onClose: () => void; onDeleted: () => void;
+}) {
+  const { t, notify } = useStore();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const submitting = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { dialog.current?.showModal(); cancelButton.current?.focus(); }, []);
+  return (
+    <dialog ref={dialog} className="admin-delete-dialog" aria-labelledby="delete-admin-title"
+      onCancel={(e) => { if (submitting.current) e.preventDefault(); }} onClose={onClose}>
+      <h2 id="delete-admin-title">{t("Delete Administrator", "حذف المسؤول")}</h2>
+      <p>{t("You are about to permanently delete:", "أنت على وشك حذف الحساب التالي نهائيًا:")}</p>
+      <dl><dt>{t("Email", "البريد الإلكتروني")}</dt><dd dir="ltr">{str(target.email)}</dd>
+        <dt>{t("Role", "الدور")}</dt><dd>{str(target.role_id)}</dd></dl>
+      <p>{t("This action cannot be undone. All of this administrator’s sessions will end. Historical records will be preserved.", "لا يمكن التراجع عن هذا الإجراء. ستُنهي جميع جلسات هذا المسؤول، مع الاحتفاظ بالسجلات التاريخية.")}</p>
+      <form onSubmit={async (e) => {
+        e.preventDefault();
+        if (submitting.current) return;
+        submitting.current = true;
+        setBusy(true); setError("");
+        const form = e.currentTarget;
+        const code = String(new FormData(form).get("code") || "");
+        try {
+          await api("admin/users/" + str(target.id), "DELETE", { code });
+          notify(t("Administrator deleted.", "تم حذف المسؤول."));
+          onDeleted();
+          dialog.current?.close();
+        } catch (e) {
+          setError((e as Error).message);
+          form.reset();
+        } finally { submitting.current = false; setBusy(false); }
+      }}>
+        <label>{t("Your Authenticator Code", "رمز تطبيق المصادقة الخاص بك")}
+          <input name="code" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6}
+            autoComplete="one-time-code" required disabled={busy} dir="ltr" />
+        </label>
+        <p className="small">{t("Use a fresh code from your own authenticator. If you just signed in, wait for the next code.", "استخدم رمزًا جديدًا من تطبيق المصادقة الخاص بك. إذا سجّلت الدخول للتو، انتظر الرمز التالي.")}</p>
+        {error && <ErrorMessage code={error} />}
+        <div className="actions">
+          <button ref={cancelButton} type="button" className="button secondary" autoFocus disabled={busy} onClick={() => dialog.current?.close()}>{t("Cancel", "إلغاء")}</button>
+          <button className="button admin-destructive" disabled={busy}>{busy ? t("Deleting…", "جارٍ الحذف…") : t("Delete Administrator", "حذف المسؤول")}</button>
+        </div>
+      </form>
+    </dialog>
   );
 }

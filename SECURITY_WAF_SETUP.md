@@ -29,3 +29,7 @@
 | Paymob webhook | source request stream + HMAC | 300 | 1 min | 429 |
 
 After the final domain is attached, confirm HTTPS and HSTS behavior, firewall rule hits, Paymob callback delivery, and false-positive rates before enabling production orders.
+
+### Administrator deletion
+
+Implemented in code: `DELETE /api/admin/users/:id` requires the existing `users` permission, an active MFA-completed administrator session, same-origin CSRF validation and a fresh acting-admin TOTP. Additional PostgreSQL-backed limits are **5 attempts per administrator per 5 minutes across all sessions/IPs**, and **15 attempts per IP per 5 minutes**, returning 429. Successful attempts count because each destructive action requires fresh verification. Existing Vercel trusted-IP handling is reused. No dashboard/firewall settings were changed by this feature.

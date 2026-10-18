@@ -8,6 +8,7 @@ const { pool, transaction } = await import("../src/server/db");
 
 const selectTables = [
   "roles",
+  "admin_identities",
   "admin_users",
   "sessions",
   "password_resets",
@@ -37,12 +38,13 @@ const selectTables = [
 ] as const;
 
 const insertTables = selectTables.filter(
-  (table) => !["roles", "store_settings"].includes(table),
+  (table) => !["roles", "admin_identities", "store_settings"].includes(table),
 );
 const updateTables = selectTables.filter(
-  (table) => !["roles", "audit_logs", "categories", "order_items", "webhook_events"].includes(table),
+  (table) => !["roles", "admin_identities", "audit_logs", "categories", "order_items", "webhook_events"].includes(table),
 );
 const deleteTables = [
+  "admin_users",
   "password_resets",
   "rate_limits",
   "product_images",
