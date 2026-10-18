@@ -1,4 +1,8 @@
-import { deleteAdminAccount, lockAccountManager, protectLastManager } from "./admin-accounts";
+import {
+  deleteAdminAccount,
+  lockAccountManager,
+  protectLastManager,
+} from "./admin-accounts";
 import { boundedBody } from "./http";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -50,21 +54,18 @@ export async function adminApi(
   const { user, s } = await admin(req, permission);
   if (!["GET", "HEAD"].includes(method))
     await rate(req, "admin-mutation", 60, 60, user.id, true);
-  const requireRecentMfa = () =>
+  const requireRecentAuthentication = () =>
     requireCondition(
-      s.mfa_verified_at &&
-        Date.now() - new Date(s.mfa_verified_at).getTime() < 10 * 60_000,
+      s.created_at &&
+        Date.now() - new Date(s.created_at).getTime() < 10 * 60_000,
       401,
-      "RECENT_MFA_REQUIRED",
+      "RECENT_AUTH_REQUIRED",
     );
   if (resource === "me") return user;
   if (resource === "security") {
     requireCondition(method === "GET", 405, "METHOD_NOT_ALLOWED");
     return (
-      await pool.query(
-        "SELECT totp_enabled,mfa_required FROM admin_users WHERE id=$1",
-        [user.id],
-      )
+      await pool.query("SELECT email FROM admin_users WHERE id=$1", [user.id])
     ).rows[0];
   }
   if (resource === "jobs") {
@@ -531,11 +532,11 @@ export async function adminApi(
     if (method === "GET")
       return (
         await pool.query(
-          "SELECT id,email,role_id,active,mfa_required FROM admin_users ORDER BY created_at",
+          "SELECT id,email,role_id,active FROM admin_users ORDER BY created_at",
         )
       ).rows;
     if (method === "POST") {
-      requireRecentMfa();
+      requireRecentAuthentication();
       const d = z
         .object({
           email,
@@ -556,7 +557,7 @@ export async function adminApi(
       });
     }
     if (method === "PUT") {
-      requireRecentMfa();
+      requireRecentAuthentication();
       uuid.parse(id);
       const d = z
         .object({
@@ -568,7 +569,9 @@ export async function adminApi(
       requireCondition(id !== user.id, 409, "SELF_CHANGE_FORBIDDEN");
       await transaction(async (db) => {
         await lockAccountManager(db, user.id, s);
-        const retainsPermission = (await db.query("SELECT permissions FROM roles WHERE id=$1", [d.role])).rows[0]?.permissions.includes("users");
+        const retainsPermission = (
+          await db.query("SELECT permissions FROM roles WHERE id=$1", [d.role])
+        ).rows[0]?.permissions.includes("users");
         if (!d.active || !retainsPermission) await protectLastManager(db, id);
         await db.query(
           "UPDATE admin_users SET active=$1,role_id=$2 WHERE id=$3",
@@ -584,7 +587,7 @@ export async function adminApi(
     }
   }
   if (resource === "sessions" && method === "DELETE") {
-    requireRecentMfa();
+    requireRecentAuthentication();
     uuid.parse(id);
     await pool.query("UPDATE sessions SET expires_at=now() WHERE admin_id=$1", [
       id,

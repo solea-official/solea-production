@@ -31,9 +31,7 @@ const { products, data, locale, user } = window.fixture,
 let page: React.ReactNode;
 if (path[0] === "ops-portal")
   page =
-    path.length === 1 ? (
-      <Login />
-    ) : user ? (
+    user && !new URLSearchParams(location.search).has("reset") ? (
       <Admin path={path.slice(1)} user={user} />
     ) : (
       <Login />

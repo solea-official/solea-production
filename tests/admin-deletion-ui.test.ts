@@ -53,8 +53,8 @@ const browser = await playwright.launch({
         submissions.push(route.request().postDataJSON());
         if (fail) {
           await route.fulfill({
-            status: 401,
-            json: { error: "INVALID_MFA_CODE" },
+            status: 404,
+            json: { error: "ADMIN_DELETE_UNAVAILABLE" },
           });
           return;
         }
@@ -145,7 +145,7 @@ const browser = await playwright.launch({
       assert.match(await dialog.innerText(), /target@example.invalid/);
       assert.doesNotMatch(
         await dialog.innerText(),
-        /recovery|password hash|secret|SMS/i,
+        /recovery|password hash|secret|SMS|authenticator|TOTP/i,
       );
       const rect = await dialog.boundingBox();
       assert.ok(rect && rect.x >= 0 && rect.x + rect.width <= width);
@@ -170,18 +170,14 @@ const browser = await playwright.launch({
     await page
       .getByRole("button", { name: "Delete Admin", exact: true })
       .click();
-    const input = page.getByLabel("Your Authenticator Code", { exact: true });
-    assert.equal(await input.getAttribute("pattern"), "[0-9]{6}");
-    await input.fill("123456");
+    assert.equal(await page.locator("dialog input").count(), 0);
     await page
       .getByRole("button", { name: "Delete Administrator", exact: true })
       .click();
     await page
-      .getByText("Invalid authenticator code.", { exact: true })
+      .getByText("Unable to delete this administrator.", { exact: true })
       .waitFor();
-    assert.equal(await input.inputValue(), "");
     fail = false;
-    await input.fill("654321");
     await page
       .getByRole("button", { name: "Delete Administrator", exact: true })
       .click();
@@ -199,9 +195,7 @@ const browser = await playwright.launch({
     );
     await page.keyboard.press("Escape");
     assert.equal(await page.getByRole("dialog").isVisible(), true);
-    await expect
-      .poll(() => submissions)
-      .toEqual([{ code: "123456" }, { code: "654321" }]);
+    await expect.poll(() => submissions).toEqual([{}, {}]);
     release?.();
     await page.getByRole("dialog").waitFor({ state: "detached" });
     await page.waitForFunction(

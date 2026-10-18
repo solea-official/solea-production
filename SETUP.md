@@ -5,7 +5,7 @@ Requires Node.js 22.9+ and a Supabase project. Final price, stock, shipping zone
 ## Local run
 
 1. `npm ci` and copy `.env.example` to `.env`.
-2. Set `DATABASE_URL`, `DIRECT_DATABASE_URL`, `APP_URL`, `SESSION_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY` and the Supabase Storage server values.
+2. Set `DATABASE_URL`, `DIRECT_DATABASE_URL`, `APP_URL`, `SESSION_SECRET` and the Supabase Storage server values.
 3. Using `DIRECT_DATABASE_URL`, run `npm run db:migrate && npm run db:seed && npm run admin:create`. Provision the server-only `solea_app` login role, then run `npm run db:grants` as the database owner and use that role in `DATABASE_URL`.
 4. `npm run dev`
 
@@ -15,7 +15,7 @@ Customer registration, server-side sessions, order history, historical guest-ord
 
 ## Store configuration
 
-In `/ops-portal`, complete mandatory authenticator enrollment, then set a confirmed integer-money price, stock and active shipping zones/fees; publish approved bilingual legal content; enable COD as needed; then enable orders. The former `/admin` path returns 404. InstaPay and Vodafone Cash receiving identifiers and optional QR image URLs are server environment settings. Manual orders remain `Awaiting Confirmation` until an authorized admin confirms or rejects them.
+In `/ops-portal`, sign in with your administrator email and password, then set a confirmed integer-money price, stock and active shipping zones/fees; publish approved bilingual legal content; enable COD as needed; then enable orders. The former `/admin` path returns 404. InstaPay and Vodafone Cash receiving identifiers and optional QR image URLs are server environment settings. Manual orders remain `Awaiting Confirmation` until an authorized admin confirms or rejects them.
 
 Paymob is disabled by default. To use its hosted Unified Checkout, configure `PAYMOB_SECRET_KEY`, `PAYMOB_PUBLIC_KEY`, a provider-issued `PAYMOB_HMAC_SECRET` of at least 32 characters, and the comma-separated `PAYMOB_INTEGRATION_IDS`; register `APP_URL/api/webhooks/paymob` as the transaction notification URL, complete sandbox verification, and only then set `PAYMOB_ENABLED=true`. The server creates intentions from database prices and verifies Paymob callbacks before setting an order to paid. Never expose these values through `NEXT_PUBLIC_*` variables.
 
@@ -25,16 +25,16 @@ See `SUPABASE_SETUP.md` and `VERCEL_DEPLOYMENT.md` for the target hosting setup.
 
 The checked-in Vercel Cron schedule is daily at `03:00 UTC`. More frequent reservation maintenance requires Vercel Pro or an external scheduler configured with `CRON_SECRET`.
 
-## TOTP-only update (migration 008)
+## Password-only administrator update (migration 010)
 
-For an existing installation through migration 007: deploy this application release first and ensure older application instances are no longer serving traffic. Then run `npm run db:migrate` from trusted migration tooling. Migration `008_remove_admin_mfa_recovery_codes.sql` removes only the retired backup-code column. It leaves existing TOTP ciphertext, counters, enrollment state, sessions and audit history intact. Do not change `ADMIN_MFA_ENCRYPTION_KEY`; existing authenticators do not need re-enrollment. No new environment variables are required.
+This release follows `009_secure_admin_account_deletion.sql`. New installs apply 001–010 in numeric order. Existing installations apply only the unapplied migrations using the migration runner; do not edit or rerun 001–009 manually.
 
-The new code works both before and after migration 008. Older code that queries the removed column is incompatible after 008; rollback must use a TOTP-only release. On a fresh database, apply migrations 001–008 in order before starting the app. Do not run migrations automatically during Vercel builds. Admin login requires the authenticator; losing access requires the operator's controlled identity-verification procedure. Password reset alone does not bypass MFA. No public MFA-reset endpoint is added.
+For an existing deployment: back up the database and stage this complete release. In a coordinated maintenance window, stop/drain old application instances, run `npm run db:migrate` and `npm run db:grants` from trusted tooling with `DIRECT_DATABASE_URL`, then start/promote this release. Never run these steps automatically in a Vercel build. Keep runtime `DATABASE_URL` restricted to `solea_app`.
 
-### Secure administrator deletion (migration 009)
+Migration 010 removes obsolete admin MFA columns, revokes unfinished login challenges, and updates the 009 deletion trigger. Accounts, password hashes, roles, completed sessions, historical identities, audit records, payments, orders and customer data are preserved. Session rows referenced by history remain; admin deletion expires/detaches the deleted admin's sessions and removes their reset tokens transactionally.
 
-For an installation already at 008: back up the database, apply `009_secure_admin_account_deletion.sql` through `npm run db:migrate` using the trusted migration connection, then rerun `npm run db:grants` with **DATABASE_URL set to the migration/role-management connection**. Deploy the updated application only after those steps. Keep the normal runtime DATABASE_URL restricted to `solea_app`. Fresh installs apply 001–009 in order, then grants.
+The old MFA application is incompatible after 010: do not roll back only the application to it. Test the upgrade against a database copy first; rollback requires a separately reviewed recovery plan and must not overwrite newer production transactions. No migration or deployment is performed by extracting the ZIP.
 
-009 adds credential-free historical admin identities and repoints audit/payment foreign keys without changing their existing IDs or records. The deletion trigger expires/detaches admin sessions (retaining rows needed by historical orders/carts), clears pending MFA setup state and deletes admin password-reset tokens. The account row, password hash and encrypted TOTP secret are permanently removed on deletion. Enrolled accounts that are not deleted are unchanged. No new environment variables; never change ADMIN_MFA_ENCRYPTION_KEY for this upgrade.
+The runtime no longer reads or requires `ADMIN_MFA_ENCRYPTION_KEY`. Remove the obsolete variable from the deployment configuration after a successful coordinated upgrade if desired; do not print it or change any other secrets. Admin passwords remain bcrypt cost 14. Account creation, role changes and session revocation still require a login within the last ten minutes. Deletion requires confirmation, `users` permission, CSRF, rate limits and the existing transactional safety rules, without an OTP.
 
-The migration is compatible with the previous application: it can remain installed during an application rollback. Do not reverse the identity migration or restore a deleted administrator as an application rollback. Account deletion is irreversible through the UI; disaster recovery requires a separately reviewed database recovery procedure. The migration runner records successful migrations; do not execute this migration repeatedly by hand.
+For the targeted patch, overlay only onto the matching migration-009 baseline, then run `node scripts/remove-retired-admin-mfa.mjs` to remove the two retired implementation files. The script refuses to remove unexpected newer file contents. See `CHANGELOG_REMOVE_ADMIN_TOTP.md` for the exact baseline and changed files.

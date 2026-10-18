@@ -53,12 +53,6 @@ import {
   resetCustomerPassword,
 } from "@/server/customer-auth";
 import { customerApi } from "@/server/customer-api";
-import {
-  beginEnrollment,
-  enroll,
-  mfaStatus,
-  verifyMfa,
-} from "@/server/admin-mfa";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function handler(
@@ -144,42 +138,10 @@ async function handler(
       csrf(req, s);
       const d = loginSchema.parse(await body());
       const next = await login(req, d.email, d.password);
-      const response = result({ ok: true, challenge: "mfa", csrf: sign(next.raw) });
+      const response = result({ ok: true, csrf: sign(next.raw) });
       setSession(response, next);
       return response;
     }
-    if (endpoint === "auth/mfa" && method === "GET") {
-      await rate(req, "admin-mfa-status", 30, 300);
-      return result(await mfaStatus(req));
-    }
-    if (endpoint === "auth/mfa/setup" && method === "GET") {
-      await rate(req, "admin-mfa-setup", 10, 300);
-      return result(await beginEnrollment(req));
-    }
-    if (endpoint === "auth/mfa/enroll" && method === "POST") {
-      const s = await session(req);
-      csrf(req, s);
-      const data = z.object({ code: z.string().regex(/^\d{6}$/) }).strict().parse(await body());
-      const verified = await enroll(req, data.code);
-      const response = result({ ok: true, csrf: sign(verified.next.raw) });
-      setSession(response, verified.next);
-      return response;
-    }
-    if (endpoint === "auth/mfa/verify" && method === "POST") {
-      const s = await session(req);
-      csrf(req, s);
-      const data = z
-        .object({
-          code: z.string().regex(/^\d{6}$/),
-        })
-        .strict()
-        .parse(await body());
-      const verified = await verifyMfa(req, data);
-      const response = result({ ok: true, csrf: sign(verified.next.raw) });
-      setSession(response, verified.next);
-      return response;
-    }
-    if (endpoint.startsWith("auth/mfa/")) throw new AppError(404, "NOT_FOUND");
     if (endpoint === "auth/logout" && method === "POST") {
       const s = await session(req);
       csrf(req, s);
@@ -256,7 +218,7 @@ async function handler(
           [r.admin_id],
         );
         await db.query(
-          "UPDATE sessions SET expires_at=now() WHERE admin_id=$1 OR pending_admin_id=$1",
+          "UPDATE sessions SET expires_at=now() WHERE admin_id=$1",
           [r.admin_id],
         );
         await audit(
@@ -269,6 +231,7 @@ async function handler(
       });
       return result({ ok: true });
     }
+    if (parts[0] === "auth") throw new AppError(404, "NOT_FOUND");
     if (endpoint === "account/register" && method === "POST") {
       const s = await session(req);
       csrf(req, s);

@@ -1,3 +1,5 @@
+> Historical release record. Its MFA instructions are superseded by `CHANGELOG_REMOVE_ADMIN_TOTP.md` and the migration-010 instructions in `SETUP.md`.
+
 # SOLÉA — secure administrator account deletion
 
 ## Changes

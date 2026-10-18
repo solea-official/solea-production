@@ -17,9 +17,7 @@ export function Login() {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [forgot, setForgot] = useState(false),
-    [done, setDone] = useState(false),
-    [mfa, setMfa] = useState<"" | "enroll" | "totp">(""),
-    [setup, setSetup] = useState<{ qr: string; manualKey: string } | null>(null);
+    [done, setDone] = useState(false);
   return (
     <section className="admin-login section wrap">
       <div className="panel">
@@ -28,8 +26,6 @@ export function Login() {
         <h1>
           {reset
             ? t("Reset password", "تعيين كلمة مرور جديدة")
-            : mfa
-              ? t("Two-factor verification", "التحقق بخطوتين")
             : forgot
               ? t("Forgot password", "نسيت كلمة المرور")
               : t("Welcome back.", "أهلًا بعودتك.")}
@@ -41,16 +37,7 @@ export function Login() {
             setError("");
             const f = Object.fromEntries(new FormData(e.currentTarget));
             try {
-              if (mfa) {
-                await api(
-                  mfa === "enroll" ? "auth/mfa/enroll" : "auth/mfa/verify",
-                  "POST",
-                  { code: f.code },
-                );
-                setSetup(null);
-                router.push("/ops-portal/dashboard");
-                router.refresh();
-              } else if (reset) {
+              if (reset) {
                 await api("auth/reset", "POST", {
                   token: reset,
                   password: f.password,
@@ -61,10 +48,8 @@ export function Login() {
                 setDone(true);
               } else {
                 await api("auth/login", "POST", f);
-                const status = await api<{ challenge: "enroll" | "totp" }>("auth/mfa");
-                setMfa(status.challenge);
-                if (status.challenge === "enroll")
-                  setSetup(await api<{ qr: string; manualKey: string }>("auth/mfa/setup"));
+                router.push("/ops-portal");
+                router.refresh();
               }
             } catch (e) {
               setError((e as Error).message);
@@ -73,7 +58,7 @@ export function Login() {
             }
           }}
         >
-          {!reset && !mfa && (
+          {!reset && (
             <label>
               {t("Email", "البريد الإلكتروني")}
               <input
@@ -86,7 +71,7 @@ export function Login() {
               />
             </label>
           )}
-          {(!forgot || reset) && !mfa && (
+          {(!forgot || reset) && (
             <label>
               {t("Password", "كلمة المرور")}
               <input
@@ -108,26 +93,16 @@ export function Login() {
               )}
             </p>
           )}
-          {mfa && setup && (
-            <div className="mfa-setup">
-              <img src={setup.qr} alt={t("Authenticator setup QR code", "رمز إعداد تطبيق المصادقة")} width="240" height="240" />
-              <p className="small">{t("Scan with your authenticator app, or enter this key manually:", "امسح الرمز بتطبيق المصادقة أو أدخل المفتاح يدويًا:")}</p>
-              <code dir="ltr">{setup.manualKey}</code>
-            </div>
-          )}
-          {mfa && !done && <label>{t("Authenticator code", "رمز تطبيق المصادقة")}<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required dir="ltr" /></label>}
-          {(!mfa || !done) && <button className="button full" disabled={busy}>
+          <button className="button full" disabled={busy}>
             {t(
-              mfa ? "Verify" : reset ? "Update password" : forgot ? "Request reset" : "Sign in",
+              reset ? "Update password" : forgot ? "Request reset" : "Sign in",
               reset
                 ? "تحديث كلمة المرور"
-                : mfa
-                  ? "تحقق"
                 : forgot
                   ? "طلب إعادة التعيين"
                   : "تسجيل الدخول",
             )}
-          </button>}
+          </button>
         </form>
         {done && (
           <p className="notice">
@@ -384,9 +359,9 @@ export function Admin({
         )}
         {section === "security" && data !== null && (
           <div className="panel account-form">
-            <h2>{t("Two-factor authentication", "التحقق بخطوتين")}</h2>
+            <h2>{t("Account security", "أمان الحساب")}</h2>
             <p className="notice success">
-              {t("Required and enabled for this privileged account.", "التحقق بخطوتين مطلوب ومفعّل لهذا الحساب ذي الصلاحيات.")}
+              {t("Use a strong, unique password. Sign out when you finish using this device.", "استخدم كلمة مرور قوية وفريدة، وسجّل الخروج عند الانتهاء من استخدام هذا الجهاز.")}
             </p>
 
           </div>
@@ -1608,8 +1583,14 @@ function Users({
   );
 }
 
-function DeleteAdminDialog({ target, onClose, onDeleted }: {
-  target: Row; onClose: () => void; onDeleted: () => void;
+function DeleteAdminDialog({
+  target,
+  onClose,
+  onDeleted,
+}: {
+  target: Row;
+  onClose: () => void;
+  onDeleted: () => void;
 }) {
   const { t, notify } = useStore();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -1617,41 +1598,80 @@ function DeleteAdminDialog({ target, onClose, onDeleted }: {
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { dialog.current?.showModal(); cancelButton.current?.focus(); }, []);
+  useEffect(() => {
+    dialog.current?.showModal();
+    cancelButton.current?.focus();
+  }, []);
   return (
-    <dialog ref={dialog} className="admin-delete-dialog" aria-labelledby="delete-admin-title"
-      onCancel={(e) => { if (submitting.current) e.preventDefault(); }} onClose={onClose}>
-      <h2 id="delete-admin-title">{t("Delete Administrator", "حذف المسؤول")}</h2>
-      <p>{t("You are about to permanently delete:", "أنت على وشك حذف الحساب التالي نهائيًا:")}</p>
-      <dl><dt>{t("Email", "البريد الإلكتروني")}</dt><dd dir="ltr">{str(target.email)}</dd>
-        <dt>{t("Role", "الدور")}</dt><dd>{str(target.role_id)}</dd></dl>
-      <p>{t("This action cannot be undone. All of this administrator’s sessions will end. Historical records will be preserved.", "لا يمكن التراجع عن هذا الإجراء. ستُنهي جميع جلسات هذا المسؤول، مع الاحتفاظ بالسجلات التاريخية.")}</p>
-      <form onSubmit={async (e) => {
-        e.preventDefault();
-        if (submitting.current) return;
-        submitting.current = true;
-        setBusy(true); setError("");
-        const form = e.currentTarget;
-        const code = String(new FormData(form).get("code") || "");
-        try {
-          await api("admin/users/" + str(target.id), "DELETE", { code });
-          notify(t("Administrator deleted.", "تم حذف المسؤول."));
-          onDeleted();
-          dialog.current?.close();
-        } catch (e) {
-          setError((e as Error).message);
-          form.reset();
-        } finally { submitting.current = false; setBusy(false); }
-      }}>
-        <label>{t("Your Authenticator Code", "رمز تطبيق المصادقة الخاص بك")}
-          <input name="code" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6}
-            autoComplete="one-time-code" required disabled={busy} dir="ltr" />
-        </label>
-        <p className="small">{t("Use a fresh code from your own authenticator. If you just signed in, wait for the next code.", "استخدم رمزًا جديدًا من تطبيق المصادقة الخاص بك. إذا سجّلت الدخول للتو، انتظر الرمز التالي.")}</p>
+    <dialog
+      ref={dialog}
+      className="admin-delete-dialog"
+      aria-labelledby="delete-admin-title"
+      onCancel={(e) => {
+        if (submitting.current) e.preventDefault();
+      }}
+      onClose={onClose}
+    >
+      <h2 id="delete-admin-title">
+        {t("Delete Administrator", "حذف المسؤول")}
+      </h2>
+      <p>
+        {t(
+          "You are about to permanently delete:",
+          "أنت على وشك حذف الحساب التالي نهائيًا:",
+        )}
+      </p>
+      <dl>
+        <dt>{t("Email", "البريد الإلكتروني")}</dt>
+        <dd dir="ltr">{str(target.email)}</dd>
+        <dt>{t("Role", "الدور")}</dt>
+        <dd>{str(target.role_id)}</dd>
+      </dl>
+      <p>
+        {t(
+          "This action cannot be undone. All of this administrator’s sessions will end. Historical records will be preserved.",
+          "لا يمكن التراجع عن هذا الإجراء. ستُنهي جميع جلسات هذا المسؤول، مع الاحتفاظ بالسجلات التاريخية.",
+        )}
+      </p>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (submitting.current) return;
+          submitting.current = true;
+          setBusy(true);
+          setError("");
+          const form = e.currentTarget;
+          try {
+            await api("admin/users/" + str(target.id), "DELETE", {});
+            notify(t("Administrator deleted.", "تم حذف المسؤول."));
+            onDeleted();
+            dialog.current?.close();
+          } catch (e) {
+            setError((e as Error).message);
+            form.reset();
+          } finally {
+            submitting.current = false;
+            setBusy(false);
+          }
+        }}
+      >
         {error && <ErrorMessage code={error} />}
         <div className="actions">
-          <button ref={cancelButton} type="button" className="button secondary" autoFocus disabled={busy} onClick={() => dialog.current?.close()}>{t("Cancel", "إلغاء")}</button>
-          <button className="button admin-destructive" disabled={busy}>{busy ? t("Deleting…", "جارٍ الحذف…") : t("Delete Administrator", "حذف المسؤول")}</button>
+          <button
+            ref={cancelButton}
+            type="button"
+            className="button secondary"
+            autoFocus
+            disabled={busy}
+            onClick={() => dialog.current?.close()}
+          >
+            {t("Cancel", "إلغاء")}
+          </button>
+          <button className="button admin-destructive" disabled={busy}>
+            {busy
+              ? t("Deleting…", "جارٍ الحذف…")
+              : t("Delete Administrator", "حذف المسؤول")}
+          </button>
         </div>
       </form>
     </dialog>

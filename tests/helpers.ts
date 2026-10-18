@@ -1,4 +1,3 @@
-import { mock } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -9,7 +8,6 @@ Object.assign(process.env, {
   NODE_ENV: "test",
   APP_URL: "http://localhost:3000",
   SESSION_SECRET: randomBytes(32).toString("hex"),
-  ADMIN_MFA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   DATABASE_URL: "postgresql://test-only",
   INSTAPAY_ENABLED: "true",
   INSTAPAY_ACCOUNT: "test-instapay",
@@ -157,53 +155,5 @@ export async function auth(email: string, password: string) {
   if (!r.ok) throw new Error("Fixture auth failure " + (await r.text()));
   c.cookie = r.headers.get("set-cookie")!.split(";")[0];
   c.csrf = (await r.json()).csrf;
-  const statusResponse = await request(c, "auth/mfa");
-  const status = await statusResponse.json();
-  if (status.challenge === "enroll") {
-    const setupResponse = await request(c, "auth/mfa/setup");
-    const setup = await setupResponse.json();
-    const { totpCode } = await import("../src/server/totp");
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    let bits = 0;
-    let value = 0;
-    const bytes: number[] = [];
-    for (const letter of setup.manualKey) {
-      value = (value << 5) | alphabet.indexOf(letter);
-      bits += 5;
-      if (bits >= 8) {
-        bits -= 8;
-        bytes.push((value >>> bits) & 255);
-      }
-    }
-    const enrolled = await request(c, "auth/mfa/enroll", "POST", {
-      code: totpCode(Buffer.from(bytes), Math.floor(Date.now() / 30_000)),
-    });
-    if (!enrolled.ok) throw new Error("Fixture MFA enrollment failure " + (await enrolled.text()));
-    c.cookie = enrolled.headers.get("set-cookie")!.split(";")[0];
-    const enrolledData = await enrolled.json();
-    c.csrf = enrolledData.csrf;
-  } else {
-    const row = (
-      await db.query(
-        "SELECT id,totp_ciphertext,totp_last_counter FROM admin_users WHERE email=$1",
-        [email],
-      )
-    ).rows[0];
-    const { decryptMfa, totpCode } = await import("../src/server/totp");
-    // Move only the fixture clock to a fresh TOTP interval; replay protection stays active.
-    const counter = Math.max(Math.floor(Date.now() / 30_000), Number(row.totp_last_counter) + 1);
-    const clock = mock.method(Date, "now", () => counter * 30_000);
-    let verified: Response;
-    try {
-      verified = await request(c, "auth/mfa/verify", "POST", {
-        code: totpCode(decryptMfa(row.totp_ciphertext, row.id), counter),
-      });
-    } finally {
-      clock.mock.restore();
-    }
-    if (!verified.ok) throw new Error("Fixture MFA verification failure " + (await verified.text()));
-    c.cookie = verified.headers.get("set-cookie")!.split(";")[0];
-    c.csrf = (await verified.json()).csrf;
-  }
   return c;
 }

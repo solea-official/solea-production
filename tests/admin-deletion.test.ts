@@ -1,4 +1,4 @@
-import { after, beforeEach, mock, test } from "node:test";
+import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
@@ -14,7 +14,6 @@ import {
   request,
   type Client,
 } from "./helpers";
-import { decryptMfa, encryptMfa, totpCode } from "../src/server/totp";
 const { protectLastManager } = await import("../src/server/admin-accounts");
 const { transaction } = await import("../src/server/db");
 
@@ -36,24 +35,6 @@ async function account(role = "owner") {
     client: await auth(email, password),
   };
 }
-async function fresh<T>(actorId: string, fn: (code: string) => Promise<T>) {
-  const a = (
-    await db.query(
-      "SELECT totp_ciphertext,totp_last_counter FROM admin_users WHERE id=$1",
-      [actorId],
-    )
-  ).rows[0];
-  const counter = Math.max(
-    Math.floor(Date.now() / 30000),
-    Number(a.totp_last_counter) + 1,
-  );
-  const clock = mock.method(Date, "now", () => counter * 30000);
-  try {
-    return await fn(totpCode(decryptMfa(a.totp_ciphertext, actorId), counter));
-  } finally {
-    clock.mock.restore();
-  }
-}
 const remove = (
   c: Client | null,
   id: string,
@@ -65,16 +46,13 @@ const exists = async (id: string) =>
     (await db.query("SELECT id FROM admin_users WHERE id=$1", [id])).rowCount,
   );
 
-test("manager, customer, anonymous and password-only sessions cannot delete administrators", async () => {
+test("manager, customer and anonymous sessions cannot delete administrators", async () => {
   const owner = await account();
   const manager = await account("manager");
+  assert.equal((await remove(manager.client, owner.id, {})).status, 403);
+  assert.equal((await remove(null, owner.id, {})).status, 401);
   assert.equal(
-    (await remove(manager.client, owner.id, { code: "123456" })).status,
-    403,
-  );
-  assert.equal((await remove(null, owner.id, { code: "123456" })).status, 401);
-  assert.equal(
-    (await remove(await customerClient(), owner.id, { code: "123456" })).status,
+    (await remove(await customerClient(), owner.id, {})).status,
     401,
   );
   const c = await client();
@@ -84,7 +62,7 @@ test("manager, customer, anonymous and password-only sessions cannot delete admi
   });
   c.cookie = login.headers.get("set-cookie")!.split(";")[0];
   c.csrf = (await login.json()).csrf;
-  assert.equal((await remove(c, owner.id, { code: "123456" })).status, 401);
+  assert.equal((await remove(c, owner.id, {})).status, 403);
   assert.equal(await exists(owner.id), true);
   const denied = (
     await db.query(
@@ -92,21 +70,18 @@ test("manager, customer, anonymous and password-only sessions cannot delete admi
       [manager.id],
     )
   ).rows;
-  assert.equal(denied.length, 1);
+  assert.equal(denied.length, 2);
   assert.deepEqual(denied[0].metadata, { reason: "FORBIDDEN" });
 });
 
-test("self-delete, malformed IDs, missing/unknown code fields, CSRF and nonexistent accounts fail safely", async () => {
+test("self-delete, malformed IDs, missing body/unknown fields, CSRF and nonexistent accounts fail safely", async () => {
   const actor = await account();
   const target = await account("support");
-  const self = await remove(actor.client, actor.id, { code: "123456" });
+  const self = await remove(actor.client, actor.id, {});
   assert.equal(self.status, 409);
   assert.deepEqual(await self.json(), { error: "SELF_DELETE_FORBIDDEN" });
-  assert.equal(
-    (await remove(actor.client, "not-a-uuid", { code: "123456" })).status,
-    400,
-  );
-  assert.equal((await remove(actor.client, target.id, {})).status, 400);
+  assert.equal((await remove(actor.client, "not-a-uuid", {})).status, 400);
+  assert.equal((await remove(actor.client, target.id, undefined)).status, 415);
   assert.equal(
     (await remove(actor.client, target.id, { recoveryCode: "not-supported" }))
       .status,
@@ -118,14 +93,8 @@ test("self-delete, malformed IDs, missing/unknown code fields, CSRF and nonexist
     400,
   );
   assert.equal(
-    (
-      await remove(
-        actor.client,
-        target.id,
-        { code: "123456" },
-        { "x-csrf-token": "invalid" },
-      )
-    ).status,
+    (await remove(actor.client, target.id, {}, { "x-csrf-token": "invalid" }))
+      .status,
     403,
   );
   assert.equal(
@@ -133,47 +102,39 @@ test("self-delete, malformed IDs, missing/unknown code fields, CSRF and nonexist
       await remove(
         actor.client,
         target.id,
-        { code: "123456" },
+        {},
         { origin: "https://attacker.example.invalid" },
       )
     ).status,
     403,
   );
   await clearRates();
-  const absent = await remove(actor.client, randomUUID(), { code: "123456" });
+  const absent = await remove(actor.client, randomUUID(), {});
   assert.equal(absent.status, 404);
   assert.deepEqual(await absent.json(), { error: "ADMIN_DELETE_UNAVAILABLE" });
   assert.equal(await exists(actor.id), true);
   assert.equal(await exists(target.id), true);
 });
 
-test("invalid acting-admin TOTP is rejected and repeated confirmation attempts are database-rate-limited", async () => {
+test("repeated deletion attempts are database-rate-limited", async () => {
   const actor = await account();
   const target = await account("support");
-  await fresh(actor.id, async (code) => {
-    const bad = code === "000000" ? "999999" : "000000";
-    for (let i = 0; i < 5; i++)
-      assert.equal(
-        (await remove(actor.client, target.id, { code: bad })).status,
-        401,
-      );
-    assert.equal((await remove(actor.client, target.id, { code })).status, 429);
-  });
+  for (let i = 0; i < 5; i++)
+    assert.equal((await remove(actor.client, actor.id, {})).status, 409);
+  assert.equal((await remove(actor.client, target.id, {})).status, 429);
   assert.equal(await exists(target.id), true);
   assert.equal(
-    Number(
-      (
-        await db.query(
-          "SELECT count(*) n FROM audit_logs WHERE actor_id=$1 AND action='ADMIN_ACCOUNT_DELETE_DENIED'",
-          [actor.id],
-        )
-      ).rows[0].n,
-    ),
+    (
+      await db.query(
+        "SELECT count(*)::int n FROM audit_logs WHERE actor_id=$1 AND action='ADMIN_ACCOUNT_DELETE_DENIED'",
+        [actor.id],
+      )
+    ).rows[0].n,
     6,
   );
 });
 
-test("authorized deletion preserves audit/payment history, revokes all sessions and resets, and consumes only acting-admin TOTP", async () => {
+test("authorized deletion preserves audit/payment history, revokes all sessions and resets, without requiring a second authentication step", async () => {
   const actor = await account();
   const target = await account("support");
   const second = await auth(target.email, target.password);
@@ -185,18 +146,11 @@ test("authorized deletion preserves audit/payment history, revokes all sessions 
   pending.cookie = login.headers.get("set-cookie")!.split(";")[0];
   pending.csrf = (await login.json()).csrf;
   await db.query(
-    "UPDATE sessions SET enrollment_ciphertext='fixture-only' WHERE pending_admin_id=$1",
-    [target.id],
-  );
-  await db.query(
     "INSERT INTO password_resets(token_hash,admin_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
     [randomBytes(32).toString("hex"), target.id],
   );
   const sessionIds = (
-    await db.query(
-      "SELECT id FROM sessions WHERE admin_id=$1 OR pending_admin_id=$1",
-      [target.id],
-    )
+    await db.query("SELECT id FROM sessions WHERE admin_id=$1", [target.id])
   ).rows.map((x) => x.id);
   const history = (
     await db.query(
@@ -234,16 +188,7 @@ test("authorized deletion preserves audit/payment history, revokes all sessions 
     [orderId, target.id],
   );
   await db.query("INSERT INTO shipments(order_id) VALUES($1)", [orderId]);
-  const ciphertext = (
-    await db.query("SELECT totp_ciphertext FROM admin_users WHERE id=$1", [
-      actor.id,
-    ])
-  ).rows[0].totp_ciphertext;
-  let usedCode = "";
-  await fresh(actor.id, async (code) => {
-    usedCode = code;
-    assert.equal((await remove(actor.client, target.id, { code })).status, 200);
-  });
+  assert.equal((await remove(actor.client, target.id, {})).status, 200);
   assert.equal(await exists(target.id), false);
   assert.deepEqual(
     (await db.query("SELECT * FROM audit_logs WHERE id=$1", [history.id]))
@@ -286,11 +231,7 @@ test("authorized deletion preserves audit/payment history, revokes all sessions 
   assert.ok(
     sessions.every(
       (s) =>
-        !s.admin_id &&
-        !s.pending_admin_id &&
-        !s.enrollment_ciphertext &&
-        !s.mfa_verified_at &&
-        new Date(s.expires_at) <= new Date(identity.deleted_at),
+        !s.admin_id && new Date(s.expires_at) <= new Date(identity.deleted_at),
     ),
   );
   for (const c of [target.client, second, pending])
@@ -317,23 +258,7 @@ test("authorized deletion preserves audit/payment history, revokes all sessions 
     JSON.stringify(event),
     /totp_ciphertext|password_hash|token_hash|\"code\"/,
   );
-  assert.equal(
-    (
-      await db.query("SELECT totp_ciphertext FROM admin_users WHERE id=$1", [
-        actor.id,
-      ])
-    ).rows[0].totp_ciphertext,
-    ciphertext,
-  );
-  const other = await account("support");
-  assert.equal(
-    (await remove(actor.client, other.id, { code: usedCode })).status,
-    401,
-  );
-  assert.equal(
-    (await remove(actor.client, target.id, { code: usedCode })).status,
-    404,
-  );
+  assert.equal((await remove(actor.client, target.id, {})).status, 404);
 });
 
 test("permission-based last-manager guard recognizes custom roles, excludes inactive managers, and rolls back", async () => {
@@ -351,29 +276,17 @@ test("permission-based last-manager guard recognizes custom roles, excludes inac
     { code: "LAST_ADMIN_FORBIDDEN" },
   );
   const target = await account("support");
-  await fresh(actor.id, async (code) =>
-    assert.equal((await remove(actor.client, target.id, { code })).status, 200),
-  );
+  assert.equal((await remove(actor.client, target.id, {})).status, 200);
 });
 
-test("failed audit insert rolls back deletion, session revocation and TOTP consumption", async () => {
+test("failed audit insert rolls back deletion, session revocation and identity changes", async () => {
   const actor = await account();
   const target = await account("support");
-  const before = (
-    await db.query("SELECT totp_last_counter FROM admin_users WHERE id=$1", [
-      actor.id,
-    ])
-  ).rows[0].totp_last_counter;
   await db.query(
     "ALTER TABLE audit_logs ADD CONSTRAINT fixture_reject_deletion CHECK(action<>'ADMIN_ACCOUNT_DELETED') NOT VALID",
   );
   try {
-    await fresh(actor.id, async (code) =>
-      assert.equal(
-        (await remove(actor.client, target.id, { code })).status,
-        500,
-      ),
-    );
+    assert.equal((await remove(actor.client, target.id, {})).status, 500);
   } finally {
     await db.query(
       "ALTER TABLE audit_logs DROP CONSTRAINT fixture_reject_deletion",
@@ -381,14 +294,6 @@ test("failed audit insert rolls back deletion, session revocation and TOTP consu
   }
   assert.equal(await exists(target.id), true);
   assert.equal((await request(target.client, "admin/dashboard")).status, 200);
-  assert.equal(
-    (
-      await db.query("SELECT totp_last_counter FROM admin_users WHERE id=$1", [
-        actor.id,
-      ])
-    ).rows[0].totp_last_counter,
-    before,
-  );
   assert.equal(
     (
       await db.query("SELECT deleted_at FROM admin_identities WHERE id=$1", [
@@ -415,12 +320,7 @@ test("runtime grants allow admin removal but forbid historical identity and audi
       "CREATE TABLE not_allowed(id int)",
     ])
       await assert.rejects(() => db.query(sql));
-    await fresh(actor.id, async (code) =>
-      assert.equal(
-        (await remove(actor.client, target.id, { code })).status,
-        200,
-      ),
-    );
+    assert.equal((await remove(actor.client, target.id, {})).status, 200);
     assert.equal(await exists(target.id), false);
     assert.equal(
       (
@@ -443,9 +343,7 @@ test("migration 009 preserves existing TOTP ciphertext and audit rows while intr
       .sort())
       await upgrade.exec(await readFile("migrations/" + file, "utf8"));
     const id = randomUUID();
-    const { encryptMfa } = await import("../src/server/totp");
-    const secret = randomBytes(20),
-      encrypted = encryptMfa(secret, id);
+    const encrypted = "historical-encrypted-fixture";
     await upgrade.query(
       "INSERT INTO admin_users(id,email,password_hash,role_id,totp_enabled,totp_ciphertext,totp_last_counter) VALUES($1,'upgrade@example.invalid','fixture','owner',true,$2,123)",
       [id, encrypted],
@@ -478,7 +376,6 @@ test("migration 009 preserves existing TOTP ciphertext and audit rows while intr
     assert.equal(row.totp_ciphertext, encrypted);
     assert.equal(row.totp_enabled, true);
     assert.equal(Number(row.totp_last_counter), 123);
-    assert.deepEqual(decryptMfa(row.totp_ciphertext, id), secret);
     assert.equal(
       (await upgrade.query("SELECT id FROM admin_identities WHERE id=$1", [id]))
         .rows.length,
@@ -497,38 +394,16 @@ test("migration 009 preserves existing TOTP ciphertext and audit rows while intr
   }
 });
 
-test("the target administrator's authenticator cannot authorize deletion", async () => {
+test("retired OTP and recovery fields cannot be submitted to admin deletion", async () => {
   const actor = await account();
   const target = await account("support");
-  await fresh(actor.id, async (actorCode) => {
-    const actorRow = (
-      await db.query("SELECT totp_ciphertext FROM admin_users WHERE id=$1", [
-        actor.id,
-      ])
-    ).rows[0];
-    const actorSecret = decryptMfa(actorRow.totp_ciphertext, actor.id);
-    const counter = Math.floor(Date.now() / 30000);
-    const actorCodes = new Set(
-      [-1, 0, 1].map((offset) => totpCode(actorSecret, counter + offset)),
-    );
-    let targetSecret: Buffer;
-    let targetCode: string;
-    do {
-      targetSecret = randomBytes(20);
-      targetCode = totpCode(targetSecret, counter);
-    } while (actorCodes.has(targetCode));
-    await db.query("UPDATE admin_users SET totp_ciphertext=$1 WHERE id=$2", [
-      encryptMfa(targetSecret, target.id),
-      target.id,
-    ]);
-    assert.equal(
-      (await remove(actor.client, target.id, { code: targetCode })).status,
-      401,
-    );
-    assert.equal(await exists(target.id), true);
-    assert.equal(
-      (await remove(actor.client, target.id, { code: actorCode })).status,
-      200,
-    );
-  });
+  for (const data of [
+    { code: "123456" },
+    { recoveryCode: "retired" },
+    { role: "owner" },
+    { adminId: actor.id },
+  ])
+    assert.equal((await remove(actor.client, target.id, data)).status, 400);
+  assert.equal(await exists(target.id), true);
+  assert.equal((await remove(actor.client, target.id, {})).status, 200);
 });

@@ -36,77 +36,107 @@ const approvedArabic = [
   "Soléa Baby\nكل طفل مميّز. وكل لمسة، بحب.",
 ];
 before(async () => {
-  temporary = await mkdtemp(path.join(tmpdir(), "solea-story-mfa-"));
+  temporary = await mkdtemp(path.join(tmpdir(), "solea-story-auth-"));
   await build({
-    entryPoints: ["tests/browser/entry.tsx"], bundle: true, platform: "browser", format: "iife",
-    outfile: path.join(temporary, "app.js"), jsx: "automatic",
-    alias: { "next/link": path.resolve("tests/browser/link.tsx"), "next/navigation": path.resolve("tests/browser/navigation.ts") },
+    entryPoints: ["tests/browser/entry.tsx"],
+    bundle: true,
+    platform: "browser",
+    format: "iife",
+    outfile: path.join(temporary, "app.js"),
+    jsx: "automatic",
+    alias: {
+      "next/link": path.resolve("tests/browser/link.tsx"),
+      "next/navigation": path.resolve("tests/browser/navigation.ts"),
+    },
     define: { "process.env.NODE_ENV": '"production"' },
   });
   app = await readFile(path.join(temporary, "app.js"));
-
 });
 after(async () => {
   await browser?.close();
   if (temporary) await rm(temporary, { recursive: true, force: true });
 });
-async function pageFixture(challenge: "enroll" | "totp" = "enroll") {
+async function pageFixture() {
   const localBrowser = process.env.CHROMIUM_PATH;
 
-  browser = await playwright.launch({
-    executablePath: localBrowser || await chromium.executablePath(),
-    args: localBrowser
-      ? []
-      : chromium.args.filter((arg) => arg !== "--disable-web-security"),
-    headless: true,
-  });
+browser = await playwright.launch({
+  executablePath: localBrowser || await chromium.executablePath(),
+  args: localBrowser
+    ? []
+    : chromium.args.filter((arg) => arg !== "--disable-web-security"),
+  headless: true,
+});
   const context = await browser.newContext({ reducedMotion: "reduce" });
   const page = await context.newPage();
   const errors: string[] = [];
   const submissions: unknown[] = [];
+  const apiPaths: string[] = [];
+  let authenticated = false;
   page.on("pageerror", (error) => errors.push(error.message));
   await context.route("http://localhost:3000/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.startsWith("/api/")) {
-      if (["/api/auth/mfa/enroll", "/api/auth/mfa/verify"].includes(url.pathname)) submissions.push(route.request().postDataJSON());
+      apiPaths.push(url.pathname);
+      if (url.pathname === "/api/auth/login") {
+        submissions.push(route.request().postDataJSON());
+        authenticated = true;
+      }
       await route.fulfill({
-  status: url.pathname === "/api/account/me" ? 401 : 200,
-
-  json:
-    url.pathname === "/api/session"
-      ? { csrf: "ui-only", customer: false, admin: false }
-
-      : url.pathname === "/api/auth/mfa"
-        ? { challenge }
-
-        : url.pathname === "/api/auth/mfa/setup"
-          ? { qr: "/media/logo.png", manualKey: "UIFIXTUREONLY" }
-
-          : url.pathname === "/api/admin/dashboard"
-            ? {
-                metrics: {},
-                products: 0,
-                jobs: 0,
-                orders: [],
-              }
-
-            : { ok: true, csrf: "ui-only" },
-});
+        status: url.pathname === "/api/account/me" ? 401 : 200,
+        json:
+          url.pathname === "/api/session"
+            ? { csrf: "ui-only", customer: false, admin: false }
+            : url.pathname === "/api/admin/dashboard"
+              ? { metrics: {}, orders: [], products: 0, jobs: 0 }
+              : { ok: true, csrf: "ui-only" },
+      });
       return;
     }
-    if (url.pathname === "/test.js") { await route.fulfill({ contentType: "application/javascript", body: app }); return; }
-    if (url.pathname.startsWith("/media/")) {
-      await route.fulfill({ contentType: "image/png", body: await readFile(path.join("public", url.pathname)) }); return;
+    if (url.pathname === "/test.js") {
+      await route.fulfill({ contentType: "application/javascript", body: app });
+      return;
     }
-    const locale = (await route.request().allHeaders()).cookie?.includes("lang=ar") ? "ar" : "en";
-    const fixture = { products: [], locale, user: { email: "ui@example.invalid", permissions: ["users"] },
-      data: { categories: [], content: [], settings: { phone: "01000000000", instagram: "test", paymob: { enabled: false } } } };
-    await route.fulfill({ contentType: "text/html", body: `<!doctype html><html lang="${locale}" dir="${locale === "ar" ? "rtl" : "ltr"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script>window.fixture=${JSON.stringify(fixture)}</script><script src="/test.js"></script></body></html>` });
+    if (url.pathname.startsWith("/media/")) {
+      await route.fulfill({
+        contentType: "image/png",
+        body: await readFile(path.join("public", url.pathname)),
+      });
+      return;
+    }
+    const locale = (await route.request().allHeaders()).cookie?.includes(
+      "lang=ar",
+    )
+      ? "ar"
+      : "en";
+    const fixture = {
+      products: [],
+      locale,
+      user: authenticated
+        ? { email: "ui@example.invalid", permissions: ["users"] }
+        : null,
+      data: {
+        categories: [],
+        content: [],
+        settings: {
+          phone: "01000000000",
+          instagram: "test",
+          paymob: { enabled: false },
+        },
+      },
+    };
+    await route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html lang="${locale}" dir="${locale === "ar" ? "rtl" : "ltr"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script>window.fixture=${JSON.stringify(fixture)}</script><script src="/test.js"></script></body></html>`,
+    });
   });
-  return { context, page, errors, submissions };
+  return { context, page, errors, submissions, apiPaths };
 }
 async function storyParagraphs(page: Page) {
-  return page.locator(".about-story p").evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).innerText));
+  return page
+    .locator(".about-story p")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => (node as HTMLElement).innerText),
+    );
 }
 test("Our Story renders exact English and full Arabic, switches language and fits desktop/tablet/mobile RTL", async () => {
   const { context, page, errors } = await pageFixture();
@@ -140,27 +170,47 @@ test("Our Story renders exact English and full Arabic, switches language and fit
     assert.deepEqual(errors, []);
   } finally { await context.close(); await browser.close(); }
 });
-test("admin enrollment and TOTP UI expose only authenticator input and no backup controls", async () => {
-  for (const challenge of ["enroll", "totp"] as const) {
-    const { context, page, errors, submissions } = await pageFixture(challenge);
-    try {
-      await page.goto("http://localhost:3000/ops-portal");
-      await page.locator('input[name="email"]').fill("ui@example.invalid");
-      await page.locator('input[name="password"]').fill("BrowserFixture9!");
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
-      await page.locator('input[name="code"]').waitFor();
-      assert.equal(await page.locator('input[name="code"]').getAttribute("required"), "");
-      assert.equal(await page.getByAltText("Authenticator setup QR code").count(), challenge === "enroll" ? 1 : 0);
-      assert.doesNotMatch(await page.locator(".admin-login").innerText(), /recovery|backup|استرداد/i);
-      assert.equal(await page.locator('input[name="recoveryCode"]').count(), 0);
-      await page.locator('input[name="code"]').fill("123456");
-      await page.getByRole("button", { name: "Verify", exact: true }).click();
-      await page.waitForURL("**/ops-portal/dashboard");
-      assert.deepEqual(submissions, [{ code: "123456" }]);
-      await page.goto("http://localhost:3000/ops-portal/security");
-      await page.getByText("Required and enabled for this privileged account.", { exact: true }).waitFor();
-      assert.doesNotMatch(await page.locator(".admin-main").innerText(), /recovery|backup|استرداد/i);
-      assert.deepEqual(errors, []);
-    } finally { await context.close(); await browser.close(); }
+test("admin password login has no authenticator input, enrollment, QR or second step", async () => {
+  const { context, page, errors, submissions, apiPaths } = await pageFixture();
+  try {
+    await page.goto("http://localhost:3000/ops-portal");
+    await page.locator('input[name="email"]').fill("ui@example.invalid");
+    await page.locator('input[name="password"]').fill("BrowserFixture9!");
+    assert.equal(
+      await page
+        .locator('input[name="code"], input[autocomplete="one-time-code"]')
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page.getByAltText("Authenticator setup QR code").count(),
+      0,
+    );
+    assert.doesNotMatch(
+      await page.locator(".admin-login").innerText(),
+      /authenticator|two-factor|recovery|backup/i,
+    );
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.locator(".admin-main").waitFor();
+    assert.equal(new URL(page.url()).pathname, "/ops-portal");
+    assert.deepEqual(submissions, [
+      { email: "ui@example.invalid", password: "BrowserFixture9!" },
+    ]);
+    assert.ok(apiPaths.every((p) => !p.includes("mfa")));
+    await page.goto("http://localhost:3000/ops-portal/security");
+    await page
+      .getByText(
+        "Use a strong, unique password. Sign out when you finish using this device.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.doesNotMatch(
+      await page.locator(".admin-main").innerText(),
+      /authenticator|two-factor|recovery|backup/i,
+    );
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    await browser.close();
   }
 });

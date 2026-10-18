@@ -1,4 +1,4 @@
-import { after, mock, test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
@@ -13,132 +13,107 @@ import {
   engine,
   request,
 } from "./helpers";
-import { decryptMfa, encryptMfa, totpCode } from "../src/server/totp";
 
 const { proxy } = await import("../src/proxy");
 
-function decodeBase32(value: string) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = 0;
-  let buffer = 0;
-  const bytes: number[] = [];
-  for (const letter of value) {
-    buffer = (buffer << 5) | alphabet.indexOf(letter);
-    bits += 5;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes.push((buffer >>> bits) & 255);
-    }
-  }
-  return Buffer.from(bytes);
-}
-
 after(async () => engine.close());
 
-test("password-only admin session is pending until mandatory TOTP succeeds", async () => {
-  const email = "mfa-owner@example.invalid";
+test("password login directly issues a rotated authorized session without an MFA key or challenge", async () => {
+  delete process.env.ADMIN_MFA_ENCRYPTION_KEY;
+  const email = "password-owner@example.invalid";
   const password = `Strong9${randomBytes(12).toString("hex")}`;
   await db.query(
     "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner')",
-    [email, await bcrypt.hash(password, 4)],
+    [email, await bcrypt.hash(password, 14)],
   );
   const c = await client();
-  const passwordStep = await request(c, "auth/login", "POST", { email, password });
-  assert.equal(passwordStep.status, 200);
-  c.cookie = passwordStep.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = (await passwordStep.json()).csrf;
-  assert.equal((await request(c, "admin/dashboard")).status, 401);
-
-  assert.deepEqual(await (await request(c, "auth/mfa")).json(), { challenge: "enroll" });
-  const setup = await (await request(c, "auth/mfa/setup")).json();
-  assert.match(setup.qr, /^data:image\/png;base64,/);
-  const code = totpCode(
-    decodeBase32(setup.manualKey),
-    Math.floor(Date.now() / 30_000),
-  );
-  const invalidCode = code === "000000" ? "000001" : "000000";
+  const original = { ...c };
+  const response = await request(c, "auth/login", "POST", { email, password });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.deepEqual(Object.keys(data).sort(), ["csrf", "ok"]);
+  const cookie = response.headers.get("set-cookie")!;
+  assert.match(cookie, /HttpOnly/i);
+  assert.match(cookie, /SameSite=lax/i);
+  c.cookie = cookie.split(";")[0];
+  c.csrf = data.csrf;
+  assert.notEqual(c.cookie, original.cookie);
+  assert.equal((await request(c, "admin/dashboard")).status, 200);
+  assert.equal((await request(original, "admin/dashboard")).status, 401);
   assert.equal(
-    (await request(c, "auth/mfa/enroll", "POST", { code: invalidCode })).status,
+    (await request(await customerClient(), "admin/dashboard")).status,
     401,
   );
-  await clearRates();
-  const enrolled = await request(c, "auth/mfa/enroll", "POST", { code });
-  assert.equal(enrolled.status, 200);
-  const enrolledBody = await enrolled.json();
-  assert.deepEqual(Object.keys(enrolledBody).sort(), ["csrf", "ok"]);
-  c.cookie = enrolled.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = enrolledBody.csrf;
-  assert.equal((await request(c, "admin/dashboard")).status, 200);
-  const createdAdmin = await request(c, "admin/users", "POST", {
+  assert.equal((await request(null, "admin/dashboard")).status, 401);
+  const created = await request(c, "admin/users", "POST", {
     email: "bcrypt14-admin@example.invalid",
     password: "NewAdminPassword9!",
     role: "support",
   });
-  assert.equal(createdAdmin.status, 200);
-  const createdAdminId = (await createdAdmin.json()).id;
+  assert.equal(created.status, 200);
+  const id = (await created.json()).id;
   assert.equal(
     bcrypt.getRounds(
       (
         await db.query("SELECT password_hash FROM admin_users WHERE id=$1", [
-          createdAdminId,
+          id,
         ])
       ).rows[0].password_hash,
     ),
     14,
   );
-
-  const logout = await request(c, "auth/logout", "POST", {});
-  c.cookie = logout.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = (await logout.json()).csrf;
-  const secondPassword = await request(c, "auth/login", "POST", { email, password });
-  c.cookie = secondPassword.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = (await secondPassword.json()).csrf;
-  assert.equal((await request(c, "admin/dashboard")).status, 401);
-  assert.equal(
-    (await request(c, "auth/mfa/verify", "POST", { recoveryCode: "old-test-backup-code" })).status,
-    400,
-  );
-  assert.equal(
-    (await request(c, "auth/mfa/verify", "POST", { code, recoveryCode: "old-test-backup-code" })).status,
-    400,
-  );
-  assert.equal((await request(c, "admin/dashboard")).status, 401);
-  // Previously enrolled authenticator remains valid; accepted codes cannot be replayed.
-  assert.equal((await request(c, "auth/mfa/verify", "POST", { code })).status, 401);
-  const counter = Math.floor(Date.now() / 30_000) + 1;
-  const clock = mock.method(Date, "now", () => counter * 30_000);
-  let verified: Response;
-  try {
-    verified = await request(c, "auth/mfa/verify", "POST", {
-      code: totpCode(decodeBase32(setup.manualKey), counter),
-    });
-  } finally {
-    clock.mock.restore();
-  }
-  assert.equal(verified.status, 200);
-  assert.deepEqual(Object.keys(await verified.clone().json()).sort(), ["csrf", "ok"]);
-  c.cookie = verified.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = (await verified.json()).csrf;
+  for (const actor of [null, await client(), await customerClient(), c])
+    for (const endpoint of [
+      "auth/mfa",
+      "auth/mfa/setup",
+      "auth/mfa/enroll",
+      "auth/mfa/verify",
+      "auth/mfa/recovery",
+    ])
+      for (const method of ["GET", "POST"])
+        assert.equal(
+          (
+            await request(
+              actor,
+              endpoint,
+              method,
+              method === "POST" ? { code: "123456" } : undefined,
+            )
+          ).status,
+          404,
+        );
+  const second = await client();
+  const secondLogin = await request(second, "auth/login", "POST", {
+    email,
+    password,
+  });
+  second.cookie = secondLogin.headers.get("set-cookie")!.split(";")[0];
+  second.csrf = (await secondLogin.json()).csrf;
   assert.equal((await request(c, "admin/dashboard")).status, 200);
-  for (const actor of [null, await client(), await customerClient(), c]) {
-    for (const method of ["GET", "POST"]) {
-      assert.equal((await request(actor, "auth/mfa/recovery", method, method === "POST" ? {} : undefined)).status, 404);
-    }
-  }
-  const logoutAgain = await request(c, "auth/logout", "POST", {});
-  c.cookie = logoutAgain.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = (await logoutAgain.json()).csrf;
-  const thirdPassword = await request(c, "auth/login", "POST", { email, password });
-  c.cookie = thirdPassword.headers.get("set-cookie")!.split(";")[0];
-  c.csrf = (await thirdPassword.json()).csrf;
+  assert.equal((await request(second, "admin/dashboard")).status, 200);
+  assert.equal((await request(c, "auth/logout", "POST", {})).status, 200);
+  assert.equal((await request(c, "admin/dashboard")).status, 401);
+  assert.equal((await request(second, "admin/dashboard")).status, 200);
+  await db.query(
+    "UPDATE sessions SET last_seen_at=now()-interval '31 minutes' WHERE admin_id=(SELECT id FROM admin_users WHERE email=$1)",
+    [email],
+  );
+  assert.equal((await request(second, "admin/dashboard")).status, 401);
   await clearRates();
-  for (let attempt = 0; attempt < 5; attempt += 1)
+  const bad = await client();
+  for (let i = 0; i < 5; i++)
     assert.equal(
-      (await request(c, "auth/mfa/verify", "POST", { code: invalidCode })).status,
+      (
+        await request(bad, "auth/login", "POST", {
+          email,
+          password: "incorrect",
+        })
+      ).status,
       401,
     );
   assert.equal(
-    (await request(c, "auth/mfa/verify", "POST", { code: invalidCode })).status,
+    (await request(bad, "auth/login", "POST", { email, password: "incorrect" }))
+      .status,
     429,
   );
 });
@@ -149,10 +124,15 @@ test("old admin URL is a non-disclosing 404 and sensitive routes are noindex/no-
   assert.equal(old.headers.get("location"), null);
   assert.equal(old.headers.get("x-content-type-options"), "nosniff");
 
-  const account = await proxy(new NextRequest("http://localhost:3000/account/orders"));
+  const account = await proxy(
+    new NextRequest("http://localhost:3000/account/orders"),
+  );
   assert.equal(account.headers.get("x-robots-tag"), "noindex, nofollow");
   assert.equal(account.headers.get("cache-control"), "private, no-store");
-  assert.match(account.headers.get("content-security-policy") || "", /frame-ancestors 'none'/);
+  assert.match(
+    account.headers.get("content-security-policy") || "",
+    /frame-ancestors 'none'/,
+  );
 });
 
 test("incomplete customer profile cannot complete checkout", async () => {
@@ -164,7 +144,9 @@ test("incomplete customer profile cannot complete checkout", async () => {
       [`HARDEN-${randomUUID()}`, `harden-${randomUUID()}`],
     )
   ).rows[0];
-  await db.query("INSERT INTO inventory(product_id,stock) VALUES($1,5)", [product.id]);
+  await db.query("INSERT INTO inventory(product_id,stock) VALUES($1,5)", [
+    product.id,
+  ]);
   await db.query(
     `UPDATE store_settings SET enabled=true,cod_enabled=true,
      shipping_zones='[{"governorate":"Cairo","zone":"","fee":1500,"active":true}]'`,
@@ -180,7 +162,12 @@ test("incomplete customer profile cannot complete checkout", async () => {
     ["incomplete-profile@example.invalid"],
   );
   assert.equal(
-    (await request(customer, "cart", "POST", { productId: product.id, quantity: 1 })).status,
+    (
+      await request(customer, "cart", "POST", {
+        productId: product.id,
+        quantity: 1,
+      })
+    ).status,
     200,
   );
   const response = await request(customer, "checkout", "POST", {
@@ -225,31 +212,173 @@ test("Vercel Hobby maintenance cron runs no more than once daily", async () => {
   ]);
 });
 
-test("migration 008 removes only backup storage and preserves existing encrypted TOTP", async () => {
+test("migration 010 removes retired MFA storage without changing accounts, sessions or history", async () => {
   const upgrade = new PGlite();
   try {
-    for (const file of (await readdir("migrations")).filter((x) => x.endsWith(".sql") && x < "008").sort())
+    for (const file of (await readdir("migrations"))
+      .filter((x) => x.endsWith(".sql") && x < "010")
+      .sort())
       await upgrade.exec(await readFile("migrations/" + file, "utf8"));
-    const id = randomUUID();
-    const secret = randomBytes(20);
-    const ciphertext = encryptMfa(secret, id);
-    const counter = Math.floor(Date.now() / 30_000);
+    const id = randomUUID(),
+      customer = randomUUID();
     await upgrade.query(
-      "INSERT INTO admin_users(id,email,password_hash,role_id,totp_ciphertext,totp_enabled,totp_last_counter,recovery_hashes) VALUES($1,'upgrade@example.invalid','fixture','owner',$2,true,$3,$4)",
-      [id, ciphertext, counter - 1, JSON.stringify([randomBytes(32).toString("hex")])],
+      "INSERT INTO admin_users(id,email,password_hash,role_id,totp_ciphertext,totp_enabled) VALUES($1,'upgrade@example.invalid','unchanged-password-hash','owner','encrypted-historical-fixture',true)",
+      [id],
     );
-    await upgrade.exec(await readFile("migrations/008_remove_admin_mfa_recovery_codes.sql", "utf8"));
-    const row = (await upgrade.query<{totp_ciphertext: string; totp_enabled: boolean; totp_last_counter: number}>(
-      "SELECT totp_ciphertext,totp_enabled,totp_last_counter FROM admin_users WHERE id=$1", [id],
-    )).rows[0];
-    assert.equal(row.totp_ciphertext, ciphertext);
-    assert.equal(row.totp_enabled, true);
-    assert.equal(Number(row.totp_last_counter), counter - 1);
-    assert.deepEqual(decryptMfa(row.totp_ciphertext, id), secret);
-    const { verifyTotp } = await import("../src/server/totp");
-    assert.equal(verifyTotp(decryptMfa(row.totp_ciphertext, id), totpCode(secret, counter), Number(row.totp_last_counter)), counter);
-    assert.equal((await upgrade.query("SELECT column_name FROM information_schema.columns WHERE table_name='admin_users' AND column_name='recovery_hashes'")).rows.length, 0);
+    await upgrade.query(
+      "INSERT INTO audit_logs(actor_id,action,entity) VALUES($1,'historical','admin_users')",
+      [id],
+    );
+    await upgrade.query(
+      "INSERT INTO customer_accounts(id,email,name,password_hash) VALUES($1,'customer@example.invalid','Customer','unchanged-customer-password')",
+      [customer],
+    );
+    const full = (
+      await upgrade.query<{ id: string }>(
+        "INSERT INTO sessions(token_hash,csrf_hash,admin_id,mfa_verified_at,expires_at) VALUES('full-fixture','csrf',$1,now(),now()+interval '1 hour') RETURNING id",
+        [id],
+      )
+    ).rows[0].id;
+    const pending = (
+      await upgrade.query<{ id: string }>(
+        "INSERT INTO sessions(token_hash,csrf_hash,pending_admin_id,enrollment_ciphertext,expires_at) VALUES('pending-fixture','csrf',$1,'enrollment-fixture',now()+interval '5 minutes') RETURNING id",
+        [id],
+      )
+    ).rows[0].id;
+    const customerSession = (
+      await upgrade.query<{ id: string }>(
+        "INSERT INTO sessions(token_hash,csrf_hash,customer_account_id,expires_at) VALUES('customer-fixture','csrf',$1,now()+interval '1 day') RETURNING id",
+        [customer],
+      )
+    ).rows[0].id;
+    const before = (await upgrade.query("SELECT * FROM audit_logs")).rows;
+    await upgrade.exec(
+      await readFile("migrations/010_remove_admin_totp_mfa.sql", "utf8"),
+    );
+    assert.deepEqual(
+      (await upgrade.query("SELECT * FROM audit_logs")).rows,
+      before,
+    );
+    assert.deepEqual(
+      (
+        await upgrade.query(
+          "SELECT email,password_hash,role_id,active FROM admin_users WHERE id=$1",
+          [id],
+        )
+      ).rows,
+      [
+        {
+          email: "upgrade@example.invalid",
+          password_hash: "unchanged-password-hash",
+          role_id: "owner",
+          active: true,
+        },
+      ],
+    );
+    assert.equal(
+      (
+        await upgrade.query(
+          "SELECT id FROM sessions WHERE id=$1 AND admin_id=$2 AND expires_at>now()",
+          [full, id],
+        )
+      ).rows.length,
+      1,
+    );
+    assert.equal(
+      (
+        await upgrade.query(
+          "SELECT id FROM sessions WHERE id=$1 AND expires_at<=now() AND admin_id IS NULL",
+          [pending],
+        )
+      ).rows.length,
+      1,
+    );
+    assert.equal(
+      (
+        await upgrade.query(
+          "SELECT id FROM sessions WHERE id=$1 AND customer_account_id=$2 AND expires_at>now()",
+          [customerSession, customer],
+        )
+      ).rows.length,
+      1,
+    );
+    assert.equal(
+      (
+        await upgrade.query(
+          "SELECT column_name FROM information_schema.columns WHERE table_name IN ('admin_users','sessions') AND (column_name LIKE '%totp%' OR column_name LIKE '%mfa%' OR column_name IN ('pending_admin_id','enrollment_ciphertext','recovery_hashes'))",
+        )
+      ).rows.length,
+      0,
+    );
+    await upgrade.query("DELETE FROM admin_users WHERE id=$1", [id]);
+    assert.equal(
+      (
+        await upgrade.query(
+          "SELECT id FROM sessions WHERE id=$1 AND admin_id IS NULL AND expires_at<=now()",
+          [full],
+        )
+      ).rows.length,
+      1,
+    );
+    assert.deepEqual(
+      (await upgrade.query("SELECT * FROM audit_logs")).rows,
+      before,
+    );
+    assert.equal(
+      (
+        await upgrade.query(
+          "SELECT id FROM admin_identities WHERE id=$1 AND deleted_at IS NOT NULL",
+          [id],
+        )
+      ).rows.length,
+      1,
+    );
   } finally {
     await upgrade.close();
   }
+});
+
+test("grants selects the direct migration connection before loading the database module", async () => {
+  const source = await readFile("scripts/grants.ts", "utf8");
+  assert.match(source, /export \{\};/);
+  assert.match(
+    source,
+    /if \(process.env.DIRECT_DATABASE_URL\) \{\s*process.env.DATABASE_URL = process.env.DIRECT_DATABASE_URL;/,
+  );
+  assert.ok(
+    source.indexOf("process.env.DATABASE_URL =") <
+      source.indexOf('await import("../src/server/db")'),
+  );
+  assert.doesNotMatch(source, /^import .*from ["'].*server\/db/m);
+});
+
+test("account management retains recent password authentication and absolute session expiry", async () => {
+  await clearRates();
+  const email = "recent-admin@example.invalid",
+    password = "RecentPasswordFixture9!";
+  await db.query(
+    "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner')",
+    [email, await bcrypt.hash(password, 4)],
+  );
+  const c = await client();
+  const response = await request(c, "auth/login", "POST", { email, password });
+  c.cookie = response.headers.get("set-cookie")!.split(";")[0];
+  c.csrf = (await response.json()).csrf;
+  await db.query(
+    "UPDATE sessions SET created_at=now()-interval '11 minutes' WHERE admin_id=(SELECT id FROM admin_users WHERE email=$1)",
+    [email],
+  );
+  const denied = await request(c, "admin/users", "POST", {
+    email: "denied@example.invalid",
+    password: "StrongPasswordFixture9!",
+    role: "support",
+  });
+  assert.equal(denied.status, 401);
+  assert.deepEqual(await denied.json(), { error: "RECENT_AUTH_REQUIRED" });
+  assert.equal((await request(c, "admin/dashboard")).status, 200);
+  await db.query(
+    "UPDATE sessions SET expires_at=now()-interval '1 second' WHERE admin_id=(SELECT id FROM admin_users WHERE email=$1)",
+    [email],
+  );
+  assert.equal((await request(c, "admin/dashboard")).status, 401);
 });

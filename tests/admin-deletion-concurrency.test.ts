@@ -1,8 +1,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { db, engine, request } from "./helpers";
-import { encryptMfa, totpCode } from "../src/server/totp";
 const { newSession, sign } = await import("../src/server/security");
 after(async () => engine.close());
 
@@ -11,27 +10,21 @@ after(async () => engine.close());
 test("concurrent reciprocal deletion requests preserve the final account manager", async () => {
   const actors = [];
   for (let i = 0; i < 2; i++) {
-    const id = randomUUID(),
-      secret = randomBytes(20);
+    const id = randomUUID();
     await db.query(
-      "INSERT INTO admin_users(id,email,password_hash,role_id,totp_enabled,totp_ciphertext) VALUES($1,$2,'non-login-fixture','owner',true,$3)",
-      [id, `${i}@example.invalid`, encryptMfa(secret, id)],
+      "INSERT INTO admin_users(id,email,password_hash,role_id) VALUES($1,$2,'non-login-fixture','owner')",
+      [id, `${i}@example.invalid`],
     );
     const s = await newSession(id);
     actors.push({
       id,
-      secret,
       client: { cookie: `sol-session=${s.raw}`, csrf: sign(s.raw) },
     });
   }
   const [a, b] = actors;
   const responses = await Promise.all([
-    request(a.client, `admin/users/${b.id}`, "DELETE", {
-      code: totpCode(a.secret, Math.floor(Date.now() / 30000)),
-    }),
-    request(b.client, `admin/users/${a.id}`, "DELETE", {
-      code: totpCode(b.secret, Math.floor(Date.now() / 30000)),
-    }),
+    request(a.client, `admin/users/${b.id}`, "DELETE", {}),
+    request(b.client, `admin/users/${a.id}`, "DELETE", {}),
   ]);
   assert.deepEqual(responses.map((r) => r.status).sort(), [200, 403]);
   assert.equal(

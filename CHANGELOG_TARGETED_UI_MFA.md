@@ -1,9 +1,10 @@
+> Historical release record. Its MFA instructions are superseded by `CHANGELOG_REMOVE_ADMIN_TOTP.md` and the migration-010 instructions in `SETUP.md`.
+
 # SOLÉA — bilingual story and TOTP-only admin MFA
 
 ## Changes
 
 - Our Story uses the existing English/Arabic language switch. Approved English copy and intentional line breaks are unchanged; Arabic preserves its meaning and paragraph structure. Local RTL typography uses the existing Arabic font family.
-- The previously removed Our Story image remains removed; no `/media/box.png` image is rendered on the Our Story page.
 - Navigation, mobile menu, footer and homepage link display `Our Story` in English.
 - Admin authentication remains password → authenticator TOTP → authorized session. QR enrollment, encrypted secrets, replay counters, MFA enforcement, session rotation, CSRF, rate limits and audit events remain in place.
 - Removed admin MFA recovery-code generation, hashing/verification, alternate login field, setup display, regeneration UI, API endpoint and response/type fields. Strict input validation rejects the retired fields; retired MFA endpoints return 404. Customer password reset is unchanged.

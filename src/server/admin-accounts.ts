@@ -4,7 +4,6 @@ import { audit, pool, transaction, type DB } from "./db";
 import { AppError, requireCondition } from "./config";
 import { admin, rate, type Session } from "./security";
 import { uuid } from "./validation";
-import { decryptMfa, verifyTotp } from "./totp";
 
 // Serialize account deletion against account creation, role and active changes.
 // Revalidate authorization after acquiring the lock, including a revoked session.
@@ -12,10 +11,10 @@ export async function lockAccountManager(db: DB, actorId: string, s: Session) {
   await db.query("LOCK TABLE admin_users IN SHARE ROW EXCLUSIVE MODE");
   const actor = (
     await db.query(
-      `SELECT a.id,a.email,a.totp_ciphertext,a.totp_last_counter
+      `SELECT a.id,a.email
      FROM admin_users a JOIN roles r ON r.id=a.role_id JOIN sessions s ON s.admin_id=a.id
-     WHERE a.id=$1 AND s.id=$2 AND a.active AND a.totp_enabled
-       AND 'users'=ANY(r.permissions) AND s.mfa_verified_at IS NOT NULL
+     WHERE a.id=$1 AND s.id=$2 AND a.active
+       AND 'users'=ANY(r.permissions)
        AND s.expires_at>now() AND s.last_seen_at>now()-interval '30 minutes'`,
       [actorId, s.id],
     )
@@ -24,8 +23,6 @@ export async function lockAccountManager(db: DB, actorId: string, s: Session) {
   return actor as {
     id: string;
     email: string;
-    totp_ciphertext: string;
-    totp_last_counter: string;
   };
 }
 
@@ -52,8 +49,7 @@ export async function deleteAdminAccount(
     await rate(req, "admin-delete-ip", 15, 300);
     await rate(req, "admin-delete-account", 5, 300, user.id, true);
     requireCondition(user.permissions.includes("users"), 403, "FORBIDDEN");
-    const { code } = z
-      .object({ code: z.string().regex(/^\d{6}$/) })
+    z.object({})
       .strict()
       .parse(await body());
     await transaction(async (db) => {
@@ -67,16 +63,6 @@ export async function deleteAdminAccount(
       ).rows[0];
       requireCondition(target, 404, "ADMIN_DELETE_UNAVAILABLE");
       await protectLastManager(db, targetId);
-      const counter = verifyTotp(
-        decryptMfa(actor.totp_ciphertext, actor.id),
-        code,
-        Number(actor.totp_last_counter),
-      );
-      requireCondition(counter !== null, 401, "INVALID_MFA_CODE");
-      await db.query(
-        "UPDATE admin_users SET totp_last_counter=$1 WHERE id=$2",
-        [counter, actor.id],
-      );
       // The identity-preservation trigger revokes sessions/reset tokens atomically.
       await db.query("DELETE FROM admin_users WHERE id=$1", [targetId]);
       await audit(

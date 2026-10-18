@@ -12,16 +12,12 @@ export const metadata = {
 
 export default async function Page({
   params,
+  searchParams,
 }: {
   params: Promise<{ path?: string[] }>;
+  searchParams: Promise<{ reset?: string }>;
 }) {
   const path = (await params).path || [];
-  if (!path.length)
-    return (
-      <Suspense>
-        <Login />
-      </Suspense>
-    );
   const resources = [
     "dashboard",
     "products",
@@ -35,7 +31,7 @@ export default async function Page({
     "jobs",
     "security",
   ];
-  if (!resources.includes(path[0])) notFound();
+  if (path.length && !resources.includes(path[0])) notFound();
   const request = new NextRequest(
     (process.env.APP_URL || "http://localhost:3000") + "/ops-portal",
     { headers: await headers() },
@@ -44,7 +40,7 @@ export default async function Page({
   try {
     auth = await admin(
       request,
-      path[0] === "dashboard"
+      !path.length || path[0] === "dashboard"
         ? undefined
         : path[0] === "jobs"
           ? "settings"
@@ -53,7 +49,13 @@ export default async function Page({
             : path[0],
     );
   } catch {
-    redirect("/ops-portal");
+    if (path.length) redirect("/ops-portal");
   }
+  if (!auth || (!path.length && (await searchParams).reset))
+    return (
+      <Suspense>
+        <Login />
+      </Suspense>
+    );
   return <Admin path={path} user={auth.user} />;
 }

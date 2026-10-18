@@ -239,7 +239,7 @@ export function ErrorMessage({ code }: { code: string }) {
     SELF_DELETE_FORBIDDEN: ["You cannot delete your own administrator account.", "لا يمكنك حذف حساب المسؤول الخاص بك."],
     LAST_ADMIN_FORBIDDEN: ["The last privileged administrator account cannot be deleted.", "لا يمكن حذف آخر حساب مسؤول لديه صلاحية إدارة المسؤولين."],
     ADMIN_DELETE_UNAVAILABLE: ["Unable to delete this administrator.", "تعذّر حذف هذا المسؤول."],
-    INVALID_MFA_CODE: ["Invalid authenticator code.", "رمز المصادقة غير صحيح."],
+    RECENT_AUTH_REQUIRED: ["Sign out and sign in again to continue.", "سجّل الخروج ثم ادخل مجددًا للمتابعة."],
     INVALID_INPUT: [
       "Please check the entered information.",
       "راجعي البيانات المدخلة.",

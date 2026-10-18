@@ -19,16 +19,10 @@ await import("./seed");
 const { products } = await import("../src/server/catalog");
 const { storeData } = await import("../src/server/store");
 const { admin } = await import("../src/server/security");
-const { encryptMfa, totpCode } = await import("../src/server/totp");
 const adminPassword = "BrowserA1" + randomBytes(10).toString("hex");
-const uiAdmin = await db.query(
+await db.query(
   "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner') RETURNING id",
   ["ui@example.invalid", await bcrypt.hash(adminPassword, 4)],
-);
-const uiMfaSecret = randomBytes(20);
-await db.query(
-  "UPDATE admin_users SET totp_ciphertext=$1,totp_enabled=true WHERE id=$2",
-  [encryptMfa(uiMfaSecret, uiAdmin.rows[0].id), uiAdmin.rows[0].id],
 );
 await mkdir("var/ui", { recursive: true });
 await build({
@@ -135,7 +129,7 @@ await context.route("http://localhost:3000/**", async (r) => {
     }
     const locale = h.cookie?.includes("lang=ar") ? "ar" : "en";
     let user = null;
-    if (url.pathname.startsWith("/ops-portal/")) {
+    if (url.pathname.startsWith("/ops-portal")) {
       try {
         user = (await admin(new NextRequest(url.href, { headers: h }))).user;
       } catch {
@@ -319,9 +313,7 @@ await page.goto("http://localhost:3000/ops-portal");
 await page.getByLabel("Email", { exact: true }).fill("ui@example.invalid");
 await page.getByLabel("Password", { exact: true }).fill(adminPassword);
 await page.getByRole("button", { name: "Sign in", exact: true }).click();
-await page.getByLabel("Authenticator code").fill(totpCode(uiMfaSecret, Math.floor(Date.now() / 30_000)));
-await page.getByRole("button", { name: "Verify", exact: true }).click();
-await page.waitForURL("**/ops-portal/dashboard").catch(async (e) => {
+await page.waitForURL("**/ops-portal").catch(async (e) => {
   console.log(
     "LOGIN FAILURE",
     page.url(),

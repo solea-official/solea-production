@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createCipheriv, createHmac, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:https";
 import { request as httpRequest } from "node:http";
 import { Pool } from "pg";
@@ -47,7 +47,6 @@ const env = {
   APP_URL: url,
   DATABASE_URL: "postgresql://postgres@127.0.0.1:55440/postgres",
   SESSION_SECRET: randomBytes(32).toString("hex"),
-  ADMIN_MFA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   TRUST_PROXY: "true",
   MEDIA_DIR: "./var/runtime/media",
   NEXT_TELEMETRY_DISABLED: "1",
@@ -72,26 +71,10 @@ await run("scripts/seed.ts");
 const pool = new Pool({ connectionString: env.DATABASE_URL, max: 1 });
 const password = "RuntimeA1" + randomBytes(12).toString("hex");
 const bcrypt = (await import("bcryptjs")).default;
-const runtimeAdmin = await pool.query(
+await pool.query(
   "INSERT INTO admin_users(email,password_hash,role_id) VALUES($1,$2,'owner') RETURNING id",
   ["runtime@example.invalid", await bcrypt.hash(password, 4)],
 );
-const runtimeMfaSecret = randomBytes(20);
-const iv = randomBytes(12);
-const cipher = createCipheriv("aes-256-gcm", Buffer.from(env.ADMIN_MFA_ENCRYPTION_KEY, "hex"), iv);
-cipher.setAAD(Buffer.from(runtimeAdmin.rows[0].id));
-const encrypted = Buffer.concat([cipher.update(runtimeMfaSecret), cipher.final()]);
-await pool.query(
-  "UPDATE admin_users SET totp_ciphertext=$1,totp_enabled=true WHERE id=$2",
-  [Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64"), runtimeAdmin.rows[0].id],
-);
-const runtimeTotp = () => {
-  const message = Buffer.alloc(8);
-  message.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)));
-  const digest = createHmac("sha1", runtimeMfaSecret).update(message).digest();
-  const offset = digest[digest.length - 1] & 15;
-  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, "0");
-};
 const server = spawn(
   process.execPath,
   ["node_modules/next/dist/bin/next", "start", "-p", "3002", "-H", "127.0.0.1"],
@@ -203,9 +186,7 @@ try {
     .fill("runtime@example.invalid");
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.getByLabel("Authenticator code").fill(runtimeTotp());
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
-  await page.waitForURL("**/ops-portal/dashboard");
+  await page.waitForURL("**/ops-portal");
   await page.getByRole("heading", { name: "Overview" }).waitFor();
   checks++;
   await page.goto(url + "/account/register");
