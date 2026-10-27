@@ -415,7 +415,7 @@ test("customer cannot submit or confirm Paymob status", async () => {
     (
       await request(order.customer, "payment-submission", "POST", {
         orderId: order.id,
-        reference: "FORGED",
+        reference: "FORGED",senderPhone:"01000000000",transferredAmount:10000,
       })
     ).status,
     404,

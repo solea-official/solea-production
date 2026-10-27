@@ -1,3 +1,4 @@
+import { reportingApi, reportingState } from "./reporting";
 import {
   deleteAdminAccount,
   lockAccountManager,
@@ -34,6 +35,7 @@ export async function adminApi(
     requireCondition(parts.length === 3, 404, "NOT_FOUND");
     return deleteAdminAccount(req, id, body);
   }
+  if(resource === "reporting") { requireCondition(parts.length===2,404,"NOT_FOUND");return reportingApi(req,body); }
   const permission = (
     {
       products: "products",
@@ -93,13 +95,17 @@ export async function adminApi(
   }
   if (resource === "dashboard") {
     const allowed = user.permissions.includes("orders");
+    const reporting=await reportingState();
+    const since=reporting.starts_at || null;
     return {
+      reporting,
       orders: allowed
         ? (
             await pool.query(
               `SELECT o.status,count(*)::int order_count,
                COALESCE(sum((SELECT sum(quantity) FROM order_items WHERE order_id=o.id)),0)::int units
-               FROM orders o GROUP BY o.status ORDER BY o.status`,
+               FROM orders o WHERE ($1::timestamptz IS NULL OR o.created_at >= $1) GROUP BY o.status ORDER BY o.status`,
+              [since],
             )
           ).rows
         : [],
@@ -111,9 +117,10 @@ export async function adminApi(
                count(*) FILTER (WHERE o.status='pending')::int pending_orders,
                count(*) FILTER (WHERE o.status='delivered')::int delivered_orders,
                count(*) FILTER (WHERE o.status='cancelled')::int cancelled_orders,
-               count(*) FILTER (WHERE p.status IN ('pending','awaiting_confirmation'))::int pending_payments,
+               count(*) FILTER (WHERE p.status IN ('pending','awaiting_confirmation','rejected') AND o.status='pending')::int pending_payments,
                COALESCE(sum(o.total) FILTER (WHERE p.status='paid'),0)::int revenue
-               FROM orders o JOIN payments p ON p.order_id=o.id`,
+               FROM orders o JOIN payments p ON p.order_id=o.id WHERE ($1::timestamptz IS NULL OR o.created_at >= $1)`,
+              [since],
             )
           ).rows[0]
         : {},
@@ -127,7 +134,8 @@ export async function adminApi(
       jobs: user.permissions.includes("settings")
         ? (
             await pool.query(
-              "SELECT count(*)::int total FROM outbox WHERE status='failed'",
+              "SELECT count(*)::int total FROM outbox WHERE status='failed' AND ($1::timestamptz IS NULL OR created_at >= $1)",
+              [since],
             )
           ).rows[0].total
         : 0,
@@ -354,7 +362,7 @@ export async function adminApi(
       if (id) {
         const o = (
           await pool.query(
-            "SELECT o.*,c.name,c.email,c.mobile,a.governorate,a.city,a.street,a.building,a.floor,a.apartment,p.status payment_status,p.provider_id payment_provider,p.provider_order_id,p.provider_transaction_id,p.transfer_reference,p.proof_storage_path,p.verified_at,p.rejection_reason,v.email payment_verified_by,s.status shipping_status,s.tracking_id FROM orders o JOIN customers c ON c.id=o.customer_id JOIN addresses a ON a.id=o.address_id JOIN payments p ON p.order_id=o.id LEFT JOIN admin_identities v ON v.id=p.verified_by JOIN shipments s ON s.order_id=o.id WHERE o.id=$1",
+            "SELECT o.*,c.name,c.email,c.mobile,a.governorate,a.city,a.street,a.building,a.floor,a.apartment,p.status payment_status,p.provider_id payment_provider,p.provider_order_id,p.provider_transaction_id,p.transfer_reference,p.sender_phone,p.transferred_amount,p.submitted_at,p.submission_version,p.correction_allowed,p.whatsapp_verified_at,p.proof_storage_path,p.verified_at,p.rejection_reason,v.email payment_verified_by,s.status shipping_status,s.tracking_id FROM orders o JOIN customers c ON c.id=o.customer_id JOIN addresses a ON a.id=o.address_id JOIN payments p ON p.order_id=o.id LEFT JOIN admin_identities v ON v.id=p.verified_by JOIN shipments s ON s.order_id=o.id WHERE o.id=$1",
             [id],
           )
         ).rows[0];
@@ -371,10 +379,11 @@ export async function adminApi(
         };
       }
       const q = (req.nextUrl.searchParams.get("q") || "").slice(0, 100);
+      const review = z.enum(["all","pending"]).parse(req.nextUrl.searchParams.get("paymentReview") || "all");
       return (
         await pool.query(
-          "SELECT o.id,o.reference,o.status,o.payment_method,o.total,o.created_at,c.name,p.status payment_status FROM orders o JOIN customers c ON c.id=o.customer_id JOIN payments p ON p.order_id=o.id WHERE o.reference ILIKE $1 OR c.email ILIKE $1 ORDER BY o.created_at DESC LIMIT 100",
-          ["%" + q + "%"],
+          "SELECT o.id,o.reference,o.status,o.payment_method,o.total,o.created_at,c.name,p.status payment_status FROM orders o JOIN customers c ON c.id=o.customer_id JOIN payments p ON p.order_id=o.id WHERE (o.reference ILIKE $1 OR c.email ILIKE $1) AND ($2::boolean=false OR (o.payment_method IN ('instapay','vodafone_cash') AND p.status='awaiting_confirmation' AND p.submitted_at IS NOT NULL AND o.status='pending')) ORDER BY o.created_at DESC LIMIT 100",
+          ["%" + q + "%",review === "pending"],
         )
       ).rows;
     }
@@ -384,11 +393,11 @@ export async function adminApi(
       const data =
         action === "reject-payment"
           ? z
-              .object({ reason: z.string().trim().min(1).max(500) })
+              .object({ reason: z.string().trim().min(1).max(500), submissionVersion:z.number().int().min(1),allowCorrection:z.boolean().default(false) })
               .strict()
               .parse(await body())
           : z
-              .object({})
+              .object({ submissionVersion:z.number().int().min(1),whatsappVerified:z.literal(true),receivedAmountVerified:z.literal(true) })
               .strict()
               .parse(await body());
       return verifyManualPayment(
@@ -396,6 +405,7 @@ export async function adminApi(
         id,
         action === "confirm-payment" ? "paid" : "rejected",
         "reason" in data ? data.reason : "",
+        data,
       );
     }
     if (action === "collect-cod") {

@@ -10,9 +10,6 @@ export const metadata: Metadata = {
     default: "SOLÉA — Gentle care for little beginnings",
     template: "%s | SOLÉA",
   },
-    other: {
-    "strix-verification": "strix-verify-71d23ad9824375f8fa7d54a6964f6254",
-  },
   description:
     "SOLÉA baby care. Botanical inspiration and thoughtful formulation.",
   icons: { icon: "/media/logo.png" },

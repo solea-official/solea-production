@@ -1,3 +1,4 @@
+import { saveProof, submitTransfer, whatsappLink, expireIncompleteManualPayments } from "@/server/manual-submissions";
 import { boundedBody } from "@/server/http";
 import { NextRequest, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
@@ -41,8 +42,7 @@ import { paymobWebhook } from "@/server/paymob-webhook";
 import { sendEmail } from "@/server/integrations";
 import {
   downloadPaymentProof,
-  removeStored,
-  uploadPaymentProof,
+  signedPaymentProof,
 } from "@/server/storage";
 import {
   changeCustomerPassword,
@@ -110,7 +110,7 @@ async function handler(
         401,
         "INVALID_SIGNATURE",
       );
-      return result({ ok: true, expired: await expirePendingPayments() });
+      return result({ ok: true, expired: await expirePendingPayments(), manualExpired:await expireIncompleteManualPayments() });
     }
     if (endpoint === "session" && method === "GET") {
       await rate(req, "session", 120, 60);
@@ -343,7 +343,7 @@ async function handler(
     if (
       parts[0] === "admin" &&
       parts[1] === "orders" &&
-      parts[3] === "payment-proof" &&
+      ["payment-proof","payment-proof-url"].includes(parts[3]) && parts.length===4 &&
       method === "GET"
     ) {
       await rate(req, "admin", 300, 60);
@@ -356,6 +356,7 @@ async function handler(
         )
       ).rows[0]?.proof_storage_path;
       requireCondition(proof, 404, "FILE_NOT_FOUND");
+      if(parts[3]==="payment-proof-url")return result({url:await signedPaymentProof(proof),expiresIn:60});
       const buffer = await downloadPaymentProof(proof);
       return new NextResponse(new Blob([new Uint8Array(buffer)]), {
         headers: {
@@ -432,75 +433,21 @@ async function handler(
       const orderId = uuid.parse(form.get("orderId"));
       const file = form.get("file");
       requireCondition(file instanceof File, 400, "INVALID_FILE");
-      const owned = (
-        await pool.query(
-          `SELECT 1 FROM payments p JOIN orders o ON o.id=p.order_id
-           WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3) AND o.payment_method IN ('instapay','vodafone_cash')
-           AND o.status='pending' AND p.status='awaiting_confirmation'`,
-          [orderId, s.id, s.customer_account_id],
-        )
-      ).rowCount;
-      requireCondition(owned, 404, "ORDER_NOT_FOUND");
-      const path = await uploadPaymentProof(orderId, file);
-      const old = await transaction(async (db) => {
-        const payment = (
-          await db.query(
-            `SELECT p.proof_storage_path FROM payments p JOIN orders o ON o.id=p.order_id
-             WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3) AND o.payment_method IN ('instapay','vodafone_cash')
-             AND o.status='pending' AND p.status='awaiting_confirmation' FOR UPDATE OF p,o`,
-            [orderId, s.id, s.customer_account_id],
-          )
-        ).rows[0];
-        requireCondition(payment, 404, "ORDER_NOT_FOUND");
-        await db.query(
-          "UPDATE payments SET proof_storage_path=$1,updated_at=now() WHERE order_id=$2",
-          [path, orderId],
-        );
-        return payment.proof_storage_path as string | null;
-      });
-      if (old) await removeStored(old, true);
-      return result({ ok: true });
+      return result(await saveProof(s,orderId,file));
     }
-    if (endpoint === "payment-submission" && method === "POST") {
-      await rate(req, "payment-submission", 10, 3600, s.id);
-      const data = z
-        .object({ orderId: uuid, reference: z.string().trim().min(1).max(120) })
-        .strict()
-        .parse(await body());
-      await transaction(async (db) => {
-        const payment = (
-          await db.query(
-            `SELECT p.order_id FROM payments p JOIN orders o ON o.id=p.order_id
-             WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3)
-             AND o.payment_method IN ('instapay','vodafone_cash')
-             AND o.status='pending' AND p.status='awaiting_confirmation' FOR UPDATE OF p,o`,
-            [data.orderId, s.id, s.customer_account_id],
-          )
-        ).rows[0];
-        requireCondition(payment, 404, "ORDER_NOT_FOUND");
-        await db.query(
-          "UPDATE payments SET transfer_reference=$1,updated_at=now() WHERE order_id=$2",
-          [data.reference, data.orderId],
-        );
-        await audit(
-          db,
-          null,
-          "payment.customer-submitted",
-          "orders",
-          data.orderId,
-          {
-            referenceProvided: true,
-            customerAccount: !!s.customer_account_id,
-          },
-        );
-      });
-      return result({ ok: true });
+    if(endpoint === "payment-submission" && method === "POST"){
+      await rate(req,"payment-submission",10,3600,s.id);
+      return result(await submitTransfer(s,await body()));
+    }
+    if(endpoint === "payment-whatsapp" && method === "GET"){
+      await rate(req,"payment-whatsapp",30,300,s.id);
+      return result(await whatsappLink(s,uuid.parse(req.nextUrl.searchParams.get("orderId")),req.nextUrl.searchParams.get("locale")==="ar"?"ar":"en"));
     }
     if (endpoint === "order" && method === "GET") {
       const id = uuid.parse(req.nextUrl.searchParams.get("id"));
       const o = (
         await pool.query(
-          "SELECT o.id,o.reference,o.status,o.total,o.subtotal,o.discount,o.shipping,o.payment_method,o.created_at,p.status payment_status,p.transfer_reference,(p.proof_storage_path IS NOT NULL) proof_uploaded FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3)",
+          "SELECT o.id,o.reference,o.status,o.total,o.subtotal,o.discount,o.shipping,o.payment_method,o.created_at,p.status payment_status,p.transfer_reference,p.sender_phone,p.transferred_amount,p.submitted_at,p.submission_version,p.correction_allowed,p.rejection_reason,(p.proof_storage_path IS NOT NULL) proof_uploaded FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=$1 AND (o.session_id=$2 OR o.account_id=$3)",
           [id, s.id, s.customer_account_id],
         )
       ).rows[0];

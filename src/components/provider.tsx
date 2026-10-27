@@ -240,6 +240,13 @@ export function ErrorMessage({ code }: { code: string }) {
     LAST_ADMIN_FORBIDDEN: ["The last privileged administrator account cannot be deleted.", "لا يمكن حذف آخر حساب مسؤول لديه صلاحية إدارة المسؤولين."],
     ADMIN_DELETE_UNAVAILABLE: ["Unable to delete this administrator.", "تعذّر حذف هذا المسؤول."],
     RECENT_AUTH_REQUIRED: ["Sign out and sign in again to continue.", "سجّل الخروج ثم ادخل مجددًا للمتابعة."],
+    PAYMENT_PROOF_REQUIRED: ["Upload your payment screenshot first.","ارفع صورة التحويل أولًا."],
+    TRANSFER_AMOUNT_MISMATCH: ["The transferred amount must match the order total.","يجب أن يطابق المبلغ المحوّل إجمالي الطلب."],
+    PAYMENT_REVIEW_CHANGED: ["Payment evidence changed. Reload and review it again.","تغيّرت بيانات الدفع. حدّث الصفحة وراجعها مجددًا."],
+    BACKUP_REQUIRED: ["A verified recent backup is required.","يلزم توفير نسخة احتياطية موثقة حديثة."],
+    REPORTING_CHANGED: ["The reporting period changed. Reload before trying again.","تغيّرت فترة التقارير. حدّث الصفحة قبل المحاولة مجددًا."],
+    TRANSFER_REFERENCE_UNAVAILABLE: ["This reference cannot be used. Contact SOLÉA.","لا يمكن استخدام هذا المرجع. تواصل مع SOLÉA."],
+    PAYMENT_SUBMISSION_REQUIRED: ["Complete the transfer details and upload the screenshot first.","أكمل بيانات التحويل وارفع الصورة أولًا."],
     INVALID_INPUT: [
       "Please check the entered information.",
       "راجعي البيانات المدخلة.",

@@ -9,3 +9,7 @@
 7. Verify `/api/health`, create/replace/delete a product image as an authorized admin, and confirm another customer cannot read a payment proof.
 
 The application performs Storage operations only through authenticated server routes. The service-role key must never use a `NEXT_PUBLIC_` name.
+
+## Reporting and mandatory manual-payment review (migration 011)
+
+For the migration-010 production baseline, follow `REPORTING_MANUAL_PAYMENTS.md`. Apply additive migration 011 and refreshed runtime grants before promoting this release. Never run `db:seed` against existing production data. The reporting reset is a separate, backup-gated, audited action; extraction, migration and deployment do not reset statistics. Manual methods additionally require the new per-method `*_RECIPIENT_VERIFIED` flags after real receiving-account verification. Preserve existing Paymob credentials and daily Vercel Cron.

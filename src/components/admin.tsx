@@ -7,6 +7,7 @@ import { Product } from "@/lib/types";
 import { useStore, ErrorMessage } from "./provider";
 import { Brand } from "./brand";
 import { Status } from "./checkout";
+import { ReportingControls } from "./reporting";
 type Row = Record<string, unknown>;
 const str = (v: unknown) => (v == null ? "" : String(v));
 export function Login() {
@@ -160,7 +161,8 @@ export function Admin({
     id = path[1];
   const [data, setData] = useState<unknown>(null),
     [error, setError] = useState(""),
-    [search, setSearch] = useState("");
+    [search, setSearch] = useState(""),
+    [paymentReview,setPaymentReview]=useState("all");
   const load = useCallback(() => {
     setError("");
     if (section === "products" && id === "new") {
@@ -172,12 +174,12 @@ export function Admin({
         section +
         (id ? "/" + id : "") +
         (section === "orders" || section === "customers"
-          ? "?q=" + encodeURIComponent(search)
+          ? "?q=" + encodeURIComponent(search) + (section === "orders" ? "&paymentReview="+paymentReview : "")
           : ""),
     )
       .then(setData)
       .catch((e) => setError(e.message));
-  }, [section, id, search]);
+  }, [section, id, search,paymentReview]);
   useEffect(load, [load]);
   async function mutate(url: string, method: string, body?: unknown) {
     try {
@@ -239,7 +241,7 @@ export function Admin({
           <p role="status">{t("Loading…", "جارٍ التحميل…")}</p>
         )}
         {section === "dashboard" && data !== null && (
-          <Dashboard data={data as Row} />
+          <> <Dashboard data={data as Row} />{user.permissions.includes("users")&&<ReportingControls onChanged={load}/>}</>
         )}
         {section === "jobs" && (
           <>
@@ -309,6 +311,7 @@ export function Admin({
             />
           </label>
         )}
+        {section === "orders" && !id && <label>{t("Payment review","مراجعة الدفع")}<select value={paymentReview} onChange={e=>setPaymentReview(e.target.value)}><option value="all">{t("All orders","كل الطلبات")}</option><option value="pending">{t("Manual payments awaiting review","مدفوعات يدوية بانتظار المراجعة")}</option></select></label>}
         {section === "orders" && !id && (
           <DataTable
             rows={rows}
@@ -403,6 +406,7 @@ function Dashboard({ data }: { data: Row }) {
   const metrics = (data.metrics || {}) as Row;
   return (
     <>
+      <p className="small">{t("Reporting period:","فترة التقارير:")} {str((data.reporting as Row | undefined)?.starts_at) || t("All history","كل السجلات")}</p>
       <div className="metric-grid">
         {[
           ["Total orders", "إجمالي الطلبات", metrics.total_orders],
@@ -949,6 +953,7 @@ function OrderAdmin({
             "provider_order_id",
             "provider_transaction_id",
             "transfer_reference",
+            "sender_phone", "submitted_at", "whatsapp_verified_at",
             "payment_verified_by",
             "verified_at",
             "rejection_reason",
@@ -987,6 +992,7 @@ function OrderAdmin({
         <p>
           {t("Total", "الإجمالي")}: {currency(Number(o.total), locale)}
         </p>
+        {o.transferred_amount != null && <p>{t("Transferred amount", "المبلغ المحوّل")}: {currency(Number(o.transferred_amount),locale)} · {Number(o.transferred_amount)===Number(o.total)?t("Matches order total", "يطابق إجمالي الطلب"):t("Amount mismatch", "المبلغ غير مطابق")}</p>}
         <form
           className="input-row"
           onSubmit={async (e) => {
@@ -1040,7 +1046,7 @@ function OrderAdmin({
             )}
           {canVerify &&
             ["instapay", "vodafone_cash"].includes(str(o.payment_method)) &&
-            o.payment_status === "awaiting_confirmation" && (
+            o.payment_status === "awaiting_confirmation" && !!o.submitted_at && (
               <>
                 <button
                   className="button"
@@ -1048,12 +1054,12 @@ function OrderAdmin({
                     if (
                       confirm(
                         t(
-                          "Confirm this payment after checking the transfer?",
-                          "تأكيد الدفع بعد مراجعة التحويل؟",
+                          "Confirm you reviewed the WhatsApp message and screenshot, and independently verified the exact funds were received?",
+                          "هل راجعت رسالة واتساب وصورة التحويل وتحققت بشكل مستقل من استلام المبلغ كاملًا؟",
                         ),
                       )
                     )
-                      void mutate("confirm-payment", {});
+                      void mutate("confirm-payment", {submissionVersion:o.submission_version,whatsappVerified:true,receivedAmountVerified:true});
                   }}
                 >
                   {t("Confirm payment", "تأكيد الدفع")}
@@ -1065,13 +1071,14 @@ function OrderAdmin({
                       t("Reason for rejection", "سبب الرفض"),
                     );
                     if (reason?.trim())
-                      void mutate("reject-payment", { reason });
+                      void mutate("reject-payment", { reason, submissionVersion:o.submission_version, allowCorrection:confirm(t("Allow correction and resubmission? Cancel closes the order and releases stock.","السماح بتصحيح البيانات وإعادة الإرسال؟ إلغاء يغلق الطلب ويحرر المخزون.")) });
                   }}
                 >
                   {t("Reject payment", "رفض الدفع")}
                 </button>
               </>
             )}
+          {canVerify && !!o.submitted_at && /^01[0125][0-9]{8}$/.test(str(o.mobile)) && <a className="button secondary" href={`https://wa.me/20${str(o.mobile).slice(1)}`} target="_blank" rel="noreferrer">{t("Open customer WhatsApp", "فتح واتساب العميل")}</a>}
           {canVerify && !!o.proof_storage_path && (
             <a
               className="button secondary"

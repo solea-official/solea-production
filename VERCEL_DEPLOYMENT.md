@@ -14,3 +14,7 @@ Use the Supabase transaction-pooler URL for `DATABASE_URL` and a direct/session 
 Apply `SECURITY_WAF_SETUP.md` in the Vercel project before Go-Live. Dashboard controls, log drains, alerts and Supabase backup/PITR settings are operational tasks and are not activated by repository code.
 
 For an existing deployment, use the coordinated migration-010 maintenance sequence in `SETUP.md`; old MFA application instances cannot run after its column removal. No new secrets are required. Do not change Paymob configuration. The retired MFA encryption key is no longer read by the application.
+
+## Reporting and mandatory manual-payment review (migration 011)
+
+For the migration-010 production baseline, follow `REPORTING_MANUAL_PAYMENTS.md`. Apply additive migration 011 and refreshed runtime grants before promoting this release. Never run `db:seed` against existing production data. The reporting reset is a separate, backup-gated, audited action; extraction, migration and deployment do not reset statistics. Manual methods additionally require the new per-method `*_RECIPIENT_VERIFIED` flags after real receiving-account verification. Preserve existing Paymob credentials and daily Vercel Cron.

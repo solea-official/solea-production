@@ -10,6 +10,8 @@ Object.assign(process.env, {
   SESSION_SECRET: randomBytes(32).toString("hex"),
   DATABASE_URL: "postgresql://test-only",
   INSTAPAY_ENABLED: "true",
+  INSTAPAY_RECIPIENT_VERIFIED:"true",
+  VODAFONE_CASH_RECIPIENT_VERIFIED:"true",
   INSTAPAY_ACCOUNT: "test-instapay",
   INSTAPAY_QR_URL: "https://qr.example.invalid/instapay.svg",
   VODAFONE_CASH_ENABLED: "true",
@@ -85,6 +87,7 @@ export function storedObject(bucket: string, path: string) {
     if (!data) throw new Error("FILE_NOT_FOUND");
     return data;
   },
+  async signedUrl(bucket:string,path:string,seconds:number){return `https://storage.example.invalid/private/${bucket}/${path}?expires=${seconds}`;},
   publicUrl(bucket: string, path: string) {
     return `https://storage.example.invalid/${bucket}/${path}`;
   },

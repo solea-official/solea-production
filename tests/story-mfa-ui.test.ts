@@ -57,15 +57,12 @@ after(async () => {
   if (temporary) await rm(temporary, { recursive: true, force: true });
 });
 async function pageFixture() {
-  const localBrowser = process.env.CHROMIUM_PATH;
-
-browser = await playwright.launch({
-  executablePath: localBrowser || await chromium.executablePath(),
-  args: localBrowser
-    ? []
-    : chromium.args.filter((arg) => arg !== "--disable-web-security"),
-  headless: true,
-});
+  browser = await playwright.launch({
+    executablePath:
+      process.env.CHROMIUM_PATH || (await chromium.executablePath()),
+    args: process.env.CHROMIUM_PATH ? [] : chromium.args.filter((arg) => arg !== "--disable-web-security"),
+    headless: true,
+  });
   const context = await browser.newContext({ reducedMotion: "reduce" });
   const page = await context.newPage();
   const errors: string[] = [];
@@ -86,6 +83,8 @@ browser = await playwright.launch({
         json:
           url.pathname === "/api/session"
             ? { csrf: "ui-only", customer: false, admin: false }
+            : url.pathname === "/api/admin/reporting"
+              ? { current: { period_id: null, starts_at: null }, periods: [], backups: [] }
             : url.pathname === "/api/admin/dashboard"
               ? { metrics: {}, orders: [], products: 0, jobs: 0 }
               : { ok: true, csrf: "ui-only" },

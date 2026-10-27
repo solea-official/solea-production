@@ -10,15 +10,12 @@ import chromium from "@sparticuz/chromium";
 
 test("admin deletion dialog hides self/unauthorized actions, contains only safe data, handles errors and prevents duplicate submission", async () => {
   const temporary = await mkdtemp(path.join(tmpdir(), "solea-delete-ui-"));
-  const localBrowser = process.env.CHROMIUM_PATH;
-
-const browser = await playwright.launch({
-  executablePath: localBrowser || (await chromium.executablePath()),
-  args: localBrowser
-    ? []
-    : chromium.args.filter((a) => a !== "--disable-web-security"),
-  headless: true,
-});
+  const browser = await playwright.launch({
+    executablePath:
+      process.env.CHROMIUM_PATH || (await chromium.executablePath()),
+    args: process.env.CHROMIUM_PATH ? [] : chromium.args.filter((a) => a !== "--disable-web-security"),
+    headless: true,
+  });
   try {
     await build({
       entryPoints: ["tests/browser/entry.tsx"],

@@ -38,3 +38,7 @@ The old MFA application is incompatible after 010: do not roll back only the app
 The runtime no longer reads or requires `ADMIN_MFA_ENCRYPTION_KEY`. Remove the obsolete variable from the deployment configuration after a successful coordinated upgrade if desired; do not print it or change any other secrets. Admin passwords remain bcrypt cost 14. Account creation, role changes and session revocation still require a login within the last ten minutes. Deletion requires confirmation, `users` permission, CSRF, rate limits and the existing transactional safety rules, without an OTP.
 
 For the targeted patch, overlay only onto the matching migration-009 baseline, then run `node scripts/remove-retired-admin-mfa.mjs` to remove the two retired implementation files. The script refuses to remove unexpected newer file contents. See `CHANGELOG_REMOVE_ADMIN_TOTP.md` for the exact baseline and changed files.
+
+## Reporting and mandatory manual-payment review (migration 011)
+
+For the migration-010 production baseline, follow `REPORTING_MANUAL_PAYMENTS.md`. Apply additive migration 011 and refreshed runtime grants before promoting this release. Never run `db:seed` against existing production data. The reporting reset is a separate, backup-gated, audited action; extraction, migration and deployment do not reset statistics. Manual methods additionally require the new per-method `*_RECIPIENT_VERIFIED` flags after real receiving-account verification. Preserve existing Paymob credentials and daily Vercel Cron.

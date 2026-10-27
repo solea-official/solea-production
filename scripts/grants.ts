@@ -7,6 +7,10 @@ if (process.env.DIRECT_DATABASE_URL) {
 const { pool, transaction } = await import("../src/server/db");
 
 const selectTables = [
+  "reporting_backups",
+  "reporting_periods",
+  "reporting_state",
+  "manual_transfer_references",
   "roles",
   "admin_identities",
   "admin_users",
@@ -38,10 +42,10 @@ const selectTables = [
 ] as const;
 
 const insertTables = selectTables.filter(
-  (table) => !["roles", "admin_identities", "store_settings"].includes(table),
+  (table) => !["reporting_backups", "reporting_state", "roles", "admin_identities", "store_settings"].includes(table),
 );
 const updateTables = selectTables.filter(
-  (table) => !["roles", "admin_identities", "audit_logs", "categories", "order_items", "webhook_events"].includes(table),
+  (table) => !["reporting_backups", "reporting_periods", "manual_transfer_references", "roles", "admin_identities", "audit_logs", "categories", "order_items", "webhook_events"].includes(table),
 );
 const deleteTables = [
   "admin_users",

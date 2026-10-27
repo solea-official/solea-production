@@ -25,7 +25,8 @@
     "security:scan": "node scripts/scan.mjs",
     "test:smoke": "node scripts/smoke.mjs",
     "format": "prettier --write src scripts tests *.ts *.json *.mjs",
-    "test:runtime": "node --import tsx scripts/runtime-check.ts"
+    "test:runtime": "node --import tsx scripts/runtime-check.ts",
+    "reporting:backup": "node --env-file-if-exists=.env --import tsx scripts/reporting-backup.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.57.4",

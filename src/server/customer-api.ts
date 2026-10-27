@@ -156,7 +156,7 @@ export async function customerApi(
     const order = (
       await pool.query(
         `SELECT o.id,o.reference,o.status,o.payment_method,o.subtotal,o.discount,o.shipping,o.total,o.created_at,
-         p.status payment_status,p.transfer_reference,(p.proof_storage_path IS NOT NULL) proof_uploaded,
+         p.status payment_status,p.transfer_reference,p.sender_phone,p.transferred_amount,p.submitted_at,p.submission_version,p.correction_allowed,p.rejection_reason,(p.proof_storage_path IS NOT NULL) proof_uploaded,
          a.governorate,a.city,a.street,a.building,a.floor,a.apartment,
          s.status shipping_status,s.tracking_id
          FROM orders o JOIN payments p ON p.order_id=o.id

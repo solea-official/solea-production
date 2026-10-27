@@ -68,6 +68,15 @@ async function createOrder(payment: "cod" | "instapay" | "vodafone_cash") {
   };
 }
 
+async function evidence(order:{id:string;customer:Client},reference=""){
+ const form=new FormData();form.set("orderId",order.id);
+ const image=await sharp({create:{width:20,height:20,channels:3,background:"white"}}).png().toBuffer();
+ form.set("file",new File([image],"proof.png",{type:"image/png"}));
+ assert.equal((await request(order.customer,"payment-proof","POST",form)).status,200);
+ assert.equal((await request(order.customer,"payment-submission","POST",{orderId:order.id,senderPhone:"01000000000",transferredAmount:11500,reference})).status,200);
+}
+const approval={submissionVersion:2,whatsappVerified:true,receivedAmountVerified:true};
+
 before(async () => {
   for (const [email, role] of [
     ["phase-owner@example.invalid", "owner"],
@@ -226,11 +235,12 @@ test("proof upload is validated, private and scoped to the owning order", async 
 test("customer payment submission is owner-scoped and cannot change status or amount", async () => {
   const order = await createOrder("instapay");
   const other = await client();
+  await evidence(order,"INITIAL");
   assert.equal(
     (
       await request(other, "payment-submission", "POST", {
         orderId: order.id,
-        reference: "OTHER-REF",
+        reference: "OTHER-REF",senderPhone:"01000000000",transferredAmount:11500,
       })
     ).status,
     404,
@@ -239,7 +249,7 @@ test("customer payment submission is owner-scoped and cannot change status or am
     (
       await request(order.customer, "payment-submission", "POST", {
         orderId: order.id,
-        reference: "CUSTOMER-REF",
+        reference: "CUSTOMER-REF",senderPhone:"01000000000",transferredAmount:11500,
         status: "paid",
         total: 1,
       })
@@ -250,7 +260,7 @@ test("customer payment submission is owner-scoped and cannot change status or am
     (
       await request(order.customer, "payment-submission", "POST", {
         orderId: order.id,
-        reference: "CUSTOMER-REF",
+        reference: "CUSTOMER-REF",senderPhone:"01000000000",transferredAmount:11500,
       })
     ).status,
     200,
@@ -261,29 +271,30 @@ test("customer payment submission is owner-scoped and cannot change status or am
   );
   const payment = (
     await db.query(
-      "SELECT p.status,p.transfer_reference,o.total FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.id=$1",
+      "SELECT p.status,p.transfer_reference,p.sender_phone,p.transferred_amount,o.total FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.id=$1",
       [order.id],
     )
   ).rows[0];
   assert.deepEqual(payment, {
     status: "awaiting_confirmation",
-    transfer_reference: "CUSTOMER-REF",
+    transfer_reference: "CUSTOMER-REF",sender_phone:"01000000000",transferred_amount:11500,
     total: 11_500,
   });
 });
 
 test("only payment-authorized admins confirm or reject once and audit the actor", async () => {
   const paid = await createOrder("instapay");
+  await evidence(paid);
   assert.equal(
-    (await request(support, `admin/orders/${paid.id}/confirm-payment`, "POST", {})).status,
+    (await request(support, `admin/orders/${paid.id}/confirm-payment`, "POST", approval)).status,
     403,
   );
   assert.equal(
-    (await request(owner, `admin/orders/${paid.id}/confirm-payment`, "POST", {})).status,
+    (await request(owner, `admin/orders/${paid.id}/confirm-payment`, "POST", approval)).status,
     200,
   );
   assert.equal(
-    (await request(owner, `admin/orders/${paid.id}/confirm-payment`, "POST", {})).status,
+    (await request(owner, `admin/orders/${paid.id}/confirm-payment`, "POST", approval)).status,
     409,
   );
   const paidRow = (
@@ -293,9 +304,10 @@ test("only payment-authorized admins confirm or reject once and audit the actor"
   assert.ok(paidRow.verified_by && paidRow.verified_at);
 
   const rejected = await createOrder("vodafone_cash");
+  await evidence(rejected);
   const beforeStock = (await db.query("SELECT stock FROM inventory WHERE product_id=$1", [productId])).rows[0].stock;
   assert.equal(
-    (await request(owner, `admin/orders/${rejected.id}/reject-payment`, "POST", { reason: "Reference not found" })).status,
+    (await request(owner, `admin/orders/${rejected.id}/reject-payment`, "POST", { reason: "Reference not found",submissionVersion:2 })).status,
     200,
   );
   const rejectedRow = (

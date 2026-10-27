@@ -8,6 +8,7 @@ import { Cart, StoreData } from "@/lib/types";
 import { useStore, ErrorMessage } from "./provider";
 import { PageTitle } from "./storefront";
 import { Icon } from "./brand";
+import { ManualPayment, ReceivingNumber } from "./manual-payment";
 export function CartPage() {
   const { t, locale } = useStore();
   const [cart, setCart] = useState<Cart | null>(null),
@@ -512,6 +513,7 @@ export function Checkout({ data }: { data: StoreData }) {
                       "سيظل الطلب بانتظار مراجعة التحويل. مسؤولو SOLÉA فقط يمكنهم تأكيد الدفع.",
                     )}
                   </p>
+                  <ReceivingNumber method={method}/>
                   <label>
                     {t(
                       "Transfer reference (optional)",
@@ -585,7 +587,7 @@ export function Checkout({ data }: { data: StoreData }) {
               >
                 {busy
                   ? t("Placing your order…", "جارٍ تسجيل الطلب…")
-                  : t("Place order", "تأكيد الطلب")}
+                  : ["instapay","vodafone_cash"].includes(method) ? t("Create provisional order", "إنشاء طلب مبدئي") : t("Place order", "تأكيد الطلب")}
                 <Icon />
               </button>
             </aside>
@@ -615,6 +617,8 @@ export type OrderView = {
   payment_method: string;
   transfer_reference: string | null;
   proof_uploaded: boolean;
+  sender_phone?:string|null; transferred_amount?:number|null; submitted_at?:string|null;
+  submission_version?:number; correction_allowed?:boolean; rejection_reason?:string|null;
   total: number;
   trackingToken: string;
   items: {
@@ -625,265 +629,7 @@ export type OrderView = {
   }[];
 };
 
-function CopyButton({
-  value,
-  label,
-}: {
-  value: string;
-  label: [string, string];
-}) {
-  const { t } = useStore();
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className="copy-button"
-      onClick={async () => {
-        try {
-          if (navigator.clipboard?.writeText)
-            await navigator.clipboard.writeText(value);
-          else {
-            const fallback = document.createElement("textarea");
-            fallback.value = value;
-            fallback.setAttribute("readonly", "");
-            fallback.style.position = "fixed";
-            fallback.style.opacity = "0";
-            document.body.appendChild(fallback);
-            fallback.select();
-            if (!document.execCommand("copy")) throw new Error("COPY_FAILED");
-            fallback.remove();
-          }
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1800);
-        } catch {
-          setCopied(false);
-        }
-      }}
-    >
-      {copied ? t("Copied", "تم النسخ") : t(...label)}
-    </button>
-  );
-}
-
-export function PaymentInstructions({
-  order,
-  onUpdated,
-}: {
-  order: OrderView;
-  onUpdated: (order: OrderView) => void;
-}) {
-  const { t, locale, data, notify } = useStore();
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  if (!["instapay", "vodafone_cash"].includes(order.payment_method))
-    return null;
-  const insta = order.payment_method === "instapay";
-  const identifier = insta
-    ? data.settings.instapay.account
-    : data.settings.vodafoneCash.number;
-  const qrUrl = insta
-    ? data.settings.instapay.qrUrl
-    : data.settings.vodafoneCash.qrUrl;
-  return (
-    <section
-      className="payment-instructions"
-      aria-labelledby="manual-payment-title"
-    >
-      <div className="payment-heading">
-        <div>
-          <p className="eyebrow">{t("Manual payment", "دفع يدوي")}</p>
-          <h2 id="manual-payment-title">
-            {insta ? "InstaPay" : "Vodafone Cash"}
-          </h2>
-        </div>
-        <Status value={order.payment_status} />
-      </div>
-      <div className="payment-grid">
-        <div className="qr-shell">
-          {qrUrl ? (
-            <img
-              src={qrUrl}
-              alt={
-                insta
-                  ? "InstaPay payment QR code"
-                  : "Vodafone Cash payment QR code"
-              }
-              width="280"
-              height="280"
-            />
-          ) : (
-            <div className="qr-empty">
-              {t("QR code not configured yet.", "رمز QR غير مُعد حتى الآن.")}
-            </div>
-          )}
-        </div>
-        <div className="payment-facts">
-          <span>
-            {insta
-              ? t("InstaPay account", "حساب InstaPay")
-              : t("Receiving number", "رقم الاستلام")}
-          </span>
-          {identifier ? (
-            <div className="copy-row">
-              <strong dir="ltr">{identifier}</strong>
-              <CopyButton
-                value={identifier}
-                label={
-                  insta
-                    ? ["Copy account", "نسخ الحساب"]
-                    : ["Copy number", "نسخ الرقم"]
-                }
-              />
-            </div>
-          ) : (
-            <p className="small">
-              {t(
-                "Payment identifier not configured yet.",
-                "بيانات الاستلام غير مُعدّة حتى الآن.",
-              )}
-            </p>
-          )}
-          <span>{t("Exact amount", "المبلغ المطلوب")}</span>
-          <strong>{currency(order.total, locale)}</strong>
-          <span>{t("Order ID", "رقم الطلب")}</span>
-          <div className="copy-row">
-            <strong dir="ltr">{order.reference}</strong>
-            <CopyButton
-              value={order.reference}
-              label={["Copy order ID", "نسخ رقم الطلب"]}
-            />
-          </div>
-        </div>
-      </div>
-      <ol className="payment-steps">
-        <li>
-          {t(
-            `Scan the QR code or copy the ${insta ? "InstaPay account" : "Vodafone Cash number"}.`,
-            `امسحي رمز QR أو انسخي ${insta ? "حساب InstaPay" : "رقم Vodafone Cash"}.`,
-          )}
-        </li>
-        <li>
-          {t(
-            "Transfer the exact order amount.",
-            "حوّلي مبلغ الطلب كاملًا كما هو موضح.",
-          )}
-        </li>
-        <li>{t("Keep the transaction reference.", "احتفظي بمرجع التحويل.")}</li>
-        <li>
-          {t(
-            "Submit the reference and proof when available.",
-            "أرسلي مرجع التحويل وصورة الإيصال إن توفرت.",
-          )}
-        </li>
-        <li>
-          {t(
-            "Payment remains Awaiting Confirmation until SOLÉA verifies it.",
-            "تظل حالة الدفع بانتظار التأكيد حتى تراجع SOLÉA التحويل.",
-          )}
-        </li>
-      </ol>
-      {order.payment_status === "awaiting_confirmation" &&
-        order.status === "pending" && (
-          <div className="payment-submit-grid">
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setBusy(true);
-                setError("");
-                try {
-                  const reference = String(
-                    new FormData(e.currentTarget).get("reference") || "",
-                  );
-                  await api("payment-submission", "POST", {
-                    orderId: order.id,
-                    reference,
-                  });
-                  onUpdated({ ...order, transfer_reference: reference });
-                  notify(
-                    t(
-                      "Payment submitted for verification.",
-                      "تم إرسال بيانات الدفع للمراجعة.",
-                    ),
-                  );
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <label>
-                {t("Transaction reference", "مرجع التحويل")}
-                <input
-                  name="reference"
-                  defaultValue={order.transfer_reference || ""}
-                  required
-                  maxLength={120}
-                  dir="ltr"
-                />
-              </label>
-              <button className="button secondary" disabled={busy}>
-                {t("Submit reference", "إرسال المرجع")}
-              </button>
-            </form>
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setBusy(true);
-                setError("");
-                try {
-                  const form = new FormData(e.currentTarget);
-                  form.set("orderId", order.id);
-                  await api("payment-proof", "POST", form);
-                  onUpdated({ ...order, proof_uploaded: true });
-                  notify(
-                    t(
-                      "Payment submitted for verification.",
-                      "تم إرسال بيانات الدفع للمراجعة.",
-                    ),
-                  );
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <label>
-                {t("Payment proof", "صورة إيصال الدفع")}
-                <input
-                  name="file"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  required
-                />
-              </label>
-              <button className="button secondary" disabled={busy}>
-                {order.proof_uploaded
-                  ? t("Replace proof", "استبدال الإيصال")
-                  : t("Upload proof", "رفع الإيصال")}
-              </button>
-            </form>
-          </div>
-        )}
-      {(order.transfer_reference || order.proof_uploaded) &&
-        order.payment_status === "awaiting_confirmation" && (
-          <p className="notice success">
-            {t("Submitted for verification.", "تم الإرسال للمراجعة.")}
-          </p>
-        )}
-      {order.payment_status === "rejected" && (
-        <p className="notice error">
-          {t(
-            "Payment was rejected. Contact SOLÉA before sending another transfer.",
-            "تم رفض الدفع. تواصلي مع SOLÉA قبل إجراء تحويل جديد.",
-          )}
-        </p>
-      )}
-      {error && <ErrorMessage code={error} />}
-    </section>
-  );
-}
+export const PaymentInstructions = ManualPayment;
 export function OrderSuccess() {
   const { t, locale } = useStore();
   const query = useSearchParams();
@@ -909,7 +655,7 @@ export function OrderSuccess() {
   return (
     <>
       <PageTitle
-        title={t("Your order, received.", "استلمنا طلبك.")}
+        title={order && ["instapay","vodafone_cash"].includes(order.payment_method) && order.payment_status!=="paid" ? t("Your provisional order", "طلبك المبدئي") : t("Your order, received.", "استلمنا طلبك.")}
         eyebrow="SOLÉA"
       />
       <section className="section compact wrap narrow">
@@ -971,7 +717,7 @@ export function Status({ value }: { value: string }) {
     inactive: "غير نشط",
     archived: "مؤرشف",
   };
-  return <span className="status">{t(value, names[value] || value)}</span>;
+  return <span className="status">{t(value === "awaiting_confirmation" ? "Awaiting confirmation" : value, names[value] || value)}</span>;
 }
 export function Tracking() {
   const { t } = useStore();

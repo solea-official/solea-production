@@ -739,6 +739,13 @@ export function Information({ page, data }: { page: string; data: StoreData }) {
             <strong>Soléa Baby</strong>
             <span>{t("Every child is special. Every touch, with love.", "كل طفل مميّز. وكل لمسة، بحب.")}</span>
           </p>
+          <img
+            className="about-photo"
+            src="/media/box.png"
+            alt={t("SOLÉA kraft packaging", "علبة SOLÉA الكرافت")}
+            width="1000"
+            height="900"
+          />
           <Link href="/products" className="button">
             {t("Explore our products", "اكتشفي منتجاتنا")}
             <Icon />

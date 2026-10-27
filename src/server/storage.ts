@@ -8,6 +8,7 @@ type StorageProvider = {
   remove(bucket: string, path: string): Promise<void>;
   download(bucket: string, path: string): Promise<Buffer>;
   publicUrl(bucket: string, path: string): string;
+  signedUrl(bucket: string,path:string,seconds:number):Promise<string>;
 };
 
 const globalStorage = globalThis as unknown as { soleaStorageProvider?: StorageProvider };
@@ -38,6 +39,11 @@ function configuredProvider(): StorageProvider {
       const { data, error } = await client.storage.from(bucket).download(path);
       if (error || !data) throw new AppError(404, "FILE_NOT_FOUND");
       return Buffer.from(await data.arrayBuffer());
+    },
+    async signedUrl(bucket,path,seconds){
+      const {data,error}=await client.storage.from(bucket).createSignedUrl(path,seconds);
+      if(error||!data)throw new AppError(502,"STORAGE_DOWNLOAD_FAILED");
+      return data.signedUrl;
     },
     publicUrl(bucket, path) {
       return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
@@ -106,3 +112,5 @@ export async function downloadPaymentProof(path: string) {
     path,
   );
 }
+
+export async function signedPaymentProof(path:string){return configuredProvider().signedUrl(process.env.SUPABASE_PAYMENT_PROOFS_BUCKET||"payment-proofs",path,60);}
