@@ -1,5 +1,9 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
+import { homeMedia } from "@/lib/home-media";
+import { ProductUsage } from "./product-usage";
+import { DistanceSelling } from "./distance-selling";
 import { useEffect, useRef, useState } from "react";
 import { useStore, ErrorMessage } from "./provider";
 import { Icon } from "./brand";
@@ -184,15 +188,13 @@ export function Home({
           </span>
         </div>
         <div className="hero-image">
-          <img
-            src="/media/product-main-v2.webp"
-            alt={t(
-              "SOLÉA white pump bottle in soft natural light",
-              "عبوة SOLÉA بمضخة بيضاء في إضاءة طبيعية ناعمة",
-            )}
-            width="900"
-            height="1000"
-            fetchPriority="high"
+          <Image
+            src={homeMedia[0].src}
+            alt={t(homeMedia[0].en, homeMedia[0].ar)}
+            fill
+            sizes="(max-width: 900px) 100vw, 55vw"
+            preload
+            style={{ objectFit: "contain" }}
           />
           <span className="image-caption">
             {t(
@@ -308,38 +310,25 @@ export function Home({
             <bdi>@{data.settings.instagram}</bdi>
           </a>
         </div>
-        <div className="social-grid">
-          {["world-bath-v2.webp", "world-teddy-v2.webp", "world-play-v2.webp"].map(
-            (src, i) => (
-              <a
-                key={src}
-                href={"https://instagram.com/" + data.settings.instagram}
-                aria-label={t(
-                  "Visit SOLÉA on Instagram",
-                  "زيارة SOLÉA على إنستجرام",
-                )}
-              >
-                <img
-                  src={"/media/" + src}
-                  alt={t(
-                    [
-                      "Baby bath essentials with bubbles and towels",
-                      "Soft teddy and baby-care textiles",
-                      "Gentle bath-time play essentials",
-                    ][i],
-                    [
-                      "أدوات استحمام للأطفال مع فقاعات ومناشف",
-                      "دبدوب ناعم ومنسوجات للعناية بالأطفال",
-                      "أدوات لطيفة للعب وقت الاستحمام",
-                    ][i],
-                  )}
-                  loading="lazy"
-                  width="500"
-                  height="625"
-                />
-              </a>
-            ),
-          )}
+        <div className="social-grid approved-gallery">
+          {homeMedia.map((img) => (
+            <a
+              key={img.src}
+              href={"https://instagram.com/" + data.settings.instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t("Visit SOLÉA on Instagram", "زيارة SOLÉA على إنستجرام")}
+            >
+              <Image
+                src={img.src}
+                alt={t(img.en, img.ar)}
+                width={img.width}
+                height={img.height}
+                sizes="(max-width: 600px) 90vw, (max-width: 900px) 45vw, 30vw"
+                loading="lazy"
+              />
+            </a>
+          ))}
         </div>
       </section>
       <section className="section wrap faq-preview">
@@ -600,8 +589,8 @@ export function ProductDetail({
             {t("View your bag", "عرض السلة")}
             <Icon />
           </Link>
+          <ProductUsage en={p.usage_en} ar={p.usage_ar} />
           {[
-            [t("How to use", "طريقة الاستخدام"), t(p.usage_en, p.usage_ar)],
             [t("Warnings", "تحذيرات"), t(p.warnings_en, p.warnings_ar)],
           ].map(([title, body]) => (
             <details key={title}>
@@ -788,7 +777,11 @@ export function Information({ page, data }: { page: string; data: StoreData }) {
             )}
           </>
         )}
-        <p className="prose">{t(entry?.body_en || "", entry?.body_ar || "")}</p>
+        {page === "distance-selling" ? (
+          <DistanceSelling entry={entry} />
+        ) : (
+          <p className="prose">{t(entry?.body_en || "", entry?.body_ar || "")}</p>
+        )}
       </section>
     </>
   );

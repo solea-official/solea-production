@@ -27,9 +27,10 @@ for (const method of ["instapay", "vodafone_cash"])
         jsx: "automatic",
         alias: {
           "next/link": path.resolve("tests/browser/link.tsx"),
+          "next/image": path.resolve("tests/browser/image.tsx"),
           "next/navigation": path.resolve("tests/browser/navigation.ts"),
         },
-        define: { "process.env.NODE_ENV": '"production"' },
+        define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
       });
       const app = await readFile(path.join(temp, "app.js"));
       const css = await readFile("src/app/globals.css", "utf8");
@@ -249,9 +250,10 @@ test("admin UI exposes reporting reset and evidence review with explicit approva
       jsx: "automatic",
       alias: {
         "next/link": path.resolve("tests/browser/link.tsx"),
+        "next/image": path.resolve("tests/browser/image.tsx"),
         "next/navigation": path.resolve("tests/browser/navigation.ts"),
       },
-      define: { "process.env.NODE_ENV": '"production"' },
+      define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
     });
     const app = await readFile(path.join(temp, "app.js")),
       css = await readFile("src/app/globals.css", "utf8");

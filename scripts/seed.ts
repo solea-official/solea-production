@@ -1,5 +1,6 @@
 import { pool, transaction } from "../src/server/db";
 import { formula } from "../src/lib/formula";
+import approved from "../src/lib/approved-storefront-content.json";
 await transaction(async (db) => {
   const cat = await db.query(
     "INSERT INTO categories(name_en,name_ar,slug) VALUES('Baby care','العناية بالأطفال','baby-care') ON CONFLICT(slug) DO UPDATE SET slug=EXCLUDED.slug RETURNING id",
@@ -16,8 +17,8 @@ await transaction(async (db) => {
       "125 mL",
       cat.rows[0].id,
       formula.map((x) => x[0]).join(", "),
-      "Usage instructions will be confirmed before launch.",
-      "ستُعتمد تعليمات الاستخدام قبل الإطلاق.",
+      approved.directions.en.join("\n\n"),
+      approved.directions.ar.join("\n\n"),
       "For external use only. Keep out of reach of children. Avoid direct contact with eyes. If contact occurs, rinse with plenty of water. Discontinue use if irritation occurs.",
       "للاستخدام الخارجي فقط. يُحفظ بعيدًا عن متناول الأطفال. تجنّبي ملامسة العينين مباشرة، وفي حال الملامسة تُغسل العينان بكمية وفيرة من الماء. يُوقف الاستخدام عند حدوث تهيّج.",
     ],
@@ -27,7 +28,7 @@ await transaction(async (db) => {
     await db.query("INSERT INTO inventory(product_id) VALUES($1)", [id]);
     for (const [i, img] of [
       "product-main-v2.webp",
-      "product-benefits-v2.webp",
+      "world-bath-approved.jpg",
       "product-care-v2.webp",
       "product-how-to-v2.webp",
     ].entries())
@@ -38,13 +39,13 @@ await transaction(async (db) => {
           "/media/" + img,
           [
             "SOLÉA Baby Shampoo 125 mL",
-            "SOLÉA Baby Shampoo usage and care guide",
+            "SOLÉA Baby Shampoo with a rubber duck, towels and bath accessories",
             "SOLÉA Baby Shampoo product care guide",
             "SOLÉA Baby Shampoo botanical detail guide",
           ][i],
           [
             "شامبو SOLÉA للأطفال 125 مل",
-            "دليل استخدام وعناية شامبو SOLÉA للأطفال",
+            "شامبو SOLÉA للأطفال مع بطة مطاطية ومناشف وأدوات الاستحمام",
             "دليل العناية الخاص بشامبو SOLÉA للأطفال",
             "دليل التفاصيل النباتية لشامبو SOLÉA للأطفال",
           ][i],
@@ -85,8 +86,8 @@ await transaction(async (db) => {
       "distance-selling",
       "Distance selling",
       "البيع عن بُعد",
-      "Final distance-selling terms require business and legal approval before orders open.",
-      "تتطلب شروط البيع عن بُعد النهائية اعتماد الشركة والمراجعة القانونية قبل إتاحة الطلبات.",
+      approved.distanceSelling.en.map((section) => section.join("\n\n")).join("\n\n"),
+      approved.distanceSelling.ar.map((section) => section.join("\n\n")).join("\n\n"),
     ],
     [
       "hero",

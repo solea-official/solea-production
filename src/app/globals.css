@@ -2126,3 +2126,16 @@ html[dir="rtl"] .summary-card h2 {
 .admin-delete-dialog dd { margin: 0 0 1rem; overflow-wrap: anywhere; }
 .admin-delete-dialog dt { font-weight: 600; }
 .admin-delete-dialog .actions { flex-wrap: wrap; }
+
+/* Approved homepage assets remain fully visible within the existing card frames. */
+.approved-gallery a { background: var(--cream); }
+.approved-gallery img { object-fit: contain; }
+.approved-gallery a:hover img { transform: none; opacity: .96; }
+.footer-social-links { display: flex; flex-direction: column; gap: 10px; }
+.footer .footer-social-links a { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; }
+.footer-social-links svg { flex: 0 0 22px; }
+.footer-social-links bdi { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.product-usage h3 { margin-block: 22px 10px; font-size: 1rem; }
+.distance-selling-content h2 { margin-block: 32px 12px; font-size: clamp(1.3rem, 3vw, 1.8rem); }
+.distance-selling-content p { line-height: 1.9; margin-block: 0 18px; }
+.distance-selling-content a { text-decoration: underline; text-underline-offset: 4px; }

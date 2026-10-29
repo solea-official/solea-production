@@ -46,9 +46,10 @@ before(async () => {
     jsx: "automatic",
     alias: {
       "next/link": path.resolve("tests/browser/link.tsx"),
+      "next/image": path.resolve("tests/browser/image.tsx"),
       "next/navigation": path.resolve("tests/browser/navigation.ts"),
     },
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
   });
   app = await readFile(path.join(temporary, "app.js"));
 });

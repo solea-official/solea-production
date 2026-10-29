@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import { SocialLinks } from "./social-links";
 import { Locale, StoreData } from "@/lib/types";
 import { Brand, Icon } from "./brand";
 import { analytics, api } from "@/lib/api";
@@ -166,13 +167,7 @@ export function Shell({
               <Link href="/about">{t("Our Story", "حكايتنا")}</Link>
               <Link href="/products">{t("Shop", "المنتجات")}</Link>
               <h3 className="footer-subtitle">{t("Social media", "التواصل الاجتماعي")}</h3>
-              <a
-                href={"https://www.instagram.com/" + data.settings.instagram + "/"}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                <bdi>@{data.settings.instagram}</bdi>
-              </a>
+              <SocialLinks />
             </div>
             <div>
               <h3>{t("Customer care", "خدمة العملاء")}</h3>
