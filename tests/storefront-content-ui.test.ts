@@ -155,7 +155,11 @@ test("new homepage originals, optimized responsive markup, social links and exac
         ]);
         await f.page.goto("http://localhost:3000/");
         const hero = f.page.locator(".hero-image img");
-        await expect(hero).toHaveAttribute("alt", homeMedia[0][lang]);
+        await expect(hero).toHaveAttribute("src", "/media/product-main-v2.webp");
+        await expect(hero).toHaveAttribute("width", "900");
+        await expect(hero).toHaveAttribute("height", "1000");
+        await expect(hero).toHaveAttribute("fetchpriority", "high");
+        assert.equal(await hero.evaluate(el => getComputedStyle(el).objectFit), "cover");
         await expect.poll(() => hero.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
         if (process.env.UI_SCREENSHOT_DIR) {
           await mkdir(process.env.UI_SCREENSHOT_DIR, { recursive: true });
@@ -183,8 +187,28 @@ test("new homepage originals, optimized responsive markup, social links and exac
           );
           assert.equal(
             await imgs.nth(i).evaluate((el) => getComputedStyle(el).objectFit),
-            "contain",
+            "cover",
           );
+          assert.equal(await imgs.nth(i).evaluate(el => getComputedStyle(el).objectPosition), "50% 50%");
+        }
+        const frames = await f.page.locator(".approved-gallery > a").evaluateAll(nodes => nodes.map(node => {
+          const r = node.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom };
+        }));
+        for (const frame of frames) {
+          assert.ok(Math.abs(frame.width - frames[0].width) < 1);
+          assert.ok(Math.abs(frame.height - frames[0].height) < 1);
+          assert.ok(Math.abs(frame.width / frame.height - 4 / 5) < .001);
+          if (width > 700) {
+            assert.ok(Math.abs(frame.y - frames[0].y) < 1);
+            assert.ok(Math.abs(frame.bottom - frames[0].bottom) < 1);
+          }
+        }
+        if (width <= 700) {
+          assert.ok(Math.abs((frames[1].y - frames[0].bottom) - (frames[2].y - frames[1].bottom)) < 1);
+        } else {
+          const sorted = [...frames].sort((a,b) => a.x - b.x);
+          assert.ok(Math.abs((sorted[1].x - sorted[0].x - sorted[0].width) - (sorted[2].x - sorted[1].x - sorted[1].width)) < 1);
         }
         const ig = f.page.locator("footer .footer-social-links a").nth(0),
           tik = f.page.locator("footer .footer-social-links a").nth(1);

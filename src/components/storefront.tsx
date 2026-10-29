@@ -188,13 +188,15 @@ export function Home({
           </span>
         </div>
         <div className="hero-image">
-          <Image
-            src={homeMedia[0].src}
-            alt={t(homeMedia[0].en, homeMedia[0].ar)}
-            fill
-            sizes="(max-width: 900px) 100vw, 55vw"
-            preload
-            style={{ objectFit: "contain" }}
+          <img
+            src="/media/product-main-v2.webp"
+            alt={t(
+              "SOLÉA white pump bottle in soft natural light",
+              "عبوة SOLÉA بمضخة بيضاء في إضاءة طبيعية ناعمة",
+            )}
+            width="900"
+            height="1000"
+            fetchPriority="high"
           />
           <span className="image-caption">
             {t(
