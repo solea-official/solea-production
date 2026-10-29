@@ -2,7 +2,13 @@
 import Link from "next/link";
 import { useStore } from "./provider";
 import type { Content } from "@/lib/types";
-export function DistanceSelling({ entry }: { entry?: Content }) {
+export function DistanceSelling({
+  entry,
+  showMethods = true,
+}: {
+  entry?: Content;
+  showMethods?: boolean;
+}) {
   const { t, locale, data } = useStore();
   const methods = [
     data.settings.cod_enabled && t("Cash on Delivery", "الدفع عند الاستلام"),
@@ -36,7 +42,7 @@ export function DistanceSelling({ entry }: { entry?: Content }) {
           )}
         </p>
       )}
-      {methods.length > 0 && (
+      {showMethods && methods.length > 0 && (
         <p className="available-payment-methods">
           {t(
             "Currently enabled payment methods: ",

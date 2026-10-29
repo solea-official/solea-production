@@ -320,7 +320,9 @@ textarea:focus-visible {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
+  padding: clamp(16px, 3vw, 36px);
   animation: image-enter 1.5s both;
 }
 .image-caption {
@@ -2154,3 +2156,11 @@ html[dir="rtl"] .summary-card h2 {
 .distance-selling-content h2 { margin-block: 32px 12px; font-size: clamp(1.3rem, 3vw, 1.8rem); }
 .distance-selling-content p { line-height: 1.9; margin-block: 0 18px; }
 .distance-selling-content a { text-decoration: underline; text-underline-offset: 4px; }
+
+/* Scoped additions for the approved bundle and footer headings. */
+.footer-grid h4 { font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: .03em; margin-bottom: 22px; }
+.bundle-offer { margin-block: 20px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--cream); }
+.bundle-offer[data-selected="true"] { border-color: var(--olive); background: var(--blue); }
+.bundle-offer p { margin-block: 0 10px; }
+.bundle-offer strong { display: block; margin-bottom: 10px; }
+.bundle-offer .button { width: 100%; }

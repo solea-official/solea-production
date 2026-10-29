@@ -1,4 +1,5 @@
 "use client";
+import { ManualPaymentSteps } from "./manual-payment-steps";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -100,6 +101,20 @@ export function CartPage() {
                   <span>{t("Subtotal", "المجموع الفرعي")}</span>
                   <strong>{currency(cart.subtotal, locale)}</strong>
                 </div>
+                {cart.discount > 0 && (
+                  <>
+                    <div className="total">
+                      <span>{t("Bundle discount", "خصم العبوتين")}</span>
+                      <strong>−{currency(cart.discount, locale)}</strong>
+                    </div>
+                    <div className="total">
+                      <span>
+                        {t("Total before delivery", "الإجمالي قبل التوصيل")}
+                      </span>
+                      <strong>{currency(cart.total, locale)}</strong>
+                    </div>
+                  </>
+                )}
                 <p>
                   {t(
                     "Select your delivery location at checkout.",
@@ -514,6 +529,7 @@ export function Checkout({ data }: { data: StoreData }) {
                     )}
                   </p>
                   <ReceivingNumber method={method}/>
+                  <ManualPaymentSteps />
                   <label>
                     {t(
                       "Transfer reference (optional)",

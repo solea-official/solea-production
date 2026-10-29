@@ -95,7 +95,7 @@ before(async () => {
      shipping_zones='[{"governorate":"Cairo","zone":"Greater Cairo","fee":1500,"active":true}]'`,
   );
   for (const key of ["terms", "privacy", "returns", "shipping-policy"])
-    await db.query("INSERT INTO content(key,published) VALUES($1,true)", [key]);
+    await db.query("INSERT INTO content(key,published) VALUES($1,true) ON CONFLICT(key) DO UPDATE SET published=true", [key]);
 });
 
 after(async () => engine.close());

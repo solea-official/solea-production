@@ -1,5 +1,6 @@
 import { pool, transaction } from "../src/server/db";
 import { formula } from "../src/lib/formula";
+import policies from "../src/lib/legal-content.json";
 import approved from "../src/lib/approved-storefront-content.json";
 await transaction(async (db) => {
   const cat = await db.query(
@@ -68,27 +69,13 @@ await transaction(async (db) => {
       "Shipping fees, delivery times and service coverage will be confirmed before launch.",
       "ستُحدّد رسوم الشحن ومواعيد التوصيل ومناطق التغطية قبل الإطلاق.",
     ],
-    [
-      "privacy",
-      "Privacy policy",
-      "سياسة الخصوصية",
-      "The privacy policy will be published before orders open.",
-      "ستُنشر سياسة الخصوصية قبل إتاحة الطلبات.",
-    ],
-    [
-      "terms",
-      "Terms and conditions",
-      "الشروط والأحكام",
-      "Terms and conditions will be published before orders open.",
-      "ستُنشر الشروط والأحكام قبل إتاحة الطلبات.",
-    ],
-    [
-      "distance-selling",
-      "Distance selling",
-      "البيع عن بُعد",
-      approved.distanceSelling.en.map((section) => section.join("\n\n")).join("\n\n"),
-      approved.distanceSelling.ar.map((section) => section.join("\n\n")).join("\n\n"),
-    ],
+    ...Object.entries(policies).map(([key, p]) => [
+      key,
+      p.title_en,
+      p.title_ar,
+      p.body_en,
+      p.body_ar,
+    ]),
     [
       "hero",
       "Gentle care for little beginnings.",
@@ -121,14 +108,7 @@ await transaction(async (db) => {
   for (const [key, en, ar, be, ba] of content)
     await db.query(
       "INSERT INTO content(key,title_en,title_ar,body_en,body_ar,published) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
-      [
-        key,
-        en,
-        ar,
-        be,
-        ba,
-        !["terms", "privacy", "returns", "shipping-policy", "distance-selling"].includes(key),
-      ],
+      [key, en, ar, be, ba, !["returns", "shipping-policy"].includes(key)],
     );
 });
 await pool.end();

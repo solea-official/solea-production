@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { homeMedia } from "@/lib/home-media";
 import { ProductUsage } from "./product-usage";
+import { twoBottleDiscount, TWO_BOTTLE_TOTAL } from "@/lib/promotions";
 import { DistanceSelling } from "./distance-selling";
 import { useEffect, useRef, useState } from "react";
 import { useStore, ErrorMessage } from "./provider";
@@ -461,6 +462,21 @@ export function ProductDetail({
   const dialog = useRef<HTMLDialogElement>(null);
   const images = p.slug === "baby-shampoo" ? p.images.slice(0, 4) : p.images;
   const image = images[index] || images[0];
+  const offerAvailable = twoBottleDiscount({ ...p, quantity: 2 }) > 0;
+  const addToBag = async (quantity: number) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("cart", "POST", { productId: p.id, quantity });
+      analytics("add_to_cart", p.id);
+      notify(t("Added to your bag.", "تمت الإضافة إلى سلّتك."));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   useEffect(() => analytics("view_product", p.id), [p.id]);
   return (
     <>
@@ -542,6 +558,35 @@ export function ProductDetail({
                 ? t("In stock", "متوفّر")
                 : t("Out of stock", "نفد المخزون")}
           </p>
+          {offerAvailable && (
+            <div className="bundle-offer" data-selected={qty === 2}>
+              <p>
+                {t("A Little More Care, For Less.", "عناية أكتر، بسعر أوفر")}
+              </p>
+              <strong>
+                {t("Buy 2 Bottles — ", "اشتري عبوتين بسعر ")}
+                {currency(TWO_BOTTLE_TOTAL, locale)}
+              </strong>
+              <p className="small">
+                {t(
+                  "The offer applies to each pair. The better of this offer or a valid coupon applies, without stacking.",
+                  "يسري العرض على كل عبوتين. يُطبَّق الخصم الأفضل بين هذا العرض والكوبون الصالح، دون جمع الخصمين.",
+                )}
+              </p>
+              <button
+                type="button"
+                className="button outline"
+                aria-pressed={qty === 2}
+                disabled={busy || p.stock < 2 || !data.settings.enabled}
+                onClick={() => {
+                  setQty(2);
+                  void addToBag(2);
+                }}
+              >
+                {t("Get the 2-Bottle Offer", "اختار عرض العبوتين")}
+              </button>
+            </div>
+          )}
           <div className="purchase">
             <div className="quantity">
               <button
@@ -568,19 +613,7 @@ export function ProductDetail({
                 p.stock < qty ||
                 !data.settings.enabled
               }
-              onClick={async () => {
-                setBusy(true);
-                setError("");
-                try {
-                  await api("cart", "POST", { productId: p.id, quantity: qty });
-                  analytics("add_to_cart", p.id);
-                  notify(t("Added to your bag.", "تمت الإضافة إلى سلّتك."));
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              onClick={() => addToBag(qty)}
             >
               {t("Add to bag", "أضيفي إلى السلة")}
               <Icon name="bag" />
@@ -779,8 +812,8 @@ export function Information({ page, data }: { page: string; data: StoreData }) {
             )}
           </>
         )}
-        {page === "distance-selling" ? (
-          <DistanceSelling entry={entry} />
+        {["privacy", "terms", "distance-selling"].includes(page) ? (
+          <DistanceSelling entry={entry} showMethods={page !== "privacy"} />
         ) : (
           <p className="prose">{t(entry?.body_en || "", entry?.body_ar || "")}</p>
         )}

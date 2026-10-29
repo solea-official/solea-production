@@ -85,7 +85,7 @@ before(async () => {
     'UPDATE store_settings SET enabled=true,shipping_zones=\'[{"governorate":"Test Region","zone":"","fee":1555,"active":true}]\' WHERE id=1',
   );
   for (const key of ["terms", "privacy", "returns", "shipping-policy"])
-    await db.query("INSERT INTO content(key,published) VALUES($1,true)", [key]);
+    await db.query("INSERT INTO content(key,published) VALUES($1,true) ON CONFLICT(key) DO UPDATE SET published=true", [key]);
 });
 after(async () => {
   await engine.close();

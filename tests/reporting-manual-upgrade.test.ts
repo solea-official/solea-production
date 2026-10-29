@@ -39,7 +39,7 @@ before(async () => {
     `UPDATE store_settings SET enabled=true,cod_enabled=true,shipping_zones='[{"governorate":"Cairo","zone":"","fee":1500,"active":true}]'`,
   );
   for (const key of ["privacy", "terms", "returns", "shipping-policy"])
-    await db.query("INSERT INTO content(key,published) VALUES($1,true)", [key]);
+    await db.query("INSERT INTO content(key,published) VALUES($1,true) ON CONFLICT(key) DO UPDATE SET published=true", [key]);
 });
 async function order(method = "instapay") {
   const customer = await customerClient();

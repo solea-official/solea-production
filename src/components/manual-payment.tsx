@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ManualPaymentSteps } from "./manual-payment-steps";
 import { api, currency, parseMoney } from "@/lib/api";
 import { useStore, ErrorMessage } from "./provider";
 import { Status, type OrderView } from "./checkout";
@@ -96,6 +97,26 @@ export function ManualPayment({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [whatsapp, setWhatsapp] = useState("");
+  useEffect(() => {
+    let active = true;
+    if (
+      order.submitted_at &&
+      order.payment_status === "awaiting_confirmation"
+    ) {
+      void api<{ url: string }>(
+        `payment-whatsapp?orderId=${encodeURIComponent(order.id)}&locale=${locale}`,
+      )
+        .then((result) => {
+          if (active) setWhatsapp(result.url);
+        })
+        .catch(() => {
+          /* The existing retry button remains available. */
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [order.id, order.submitted_at, order.payment_status, locale]);
   if (!["instapay", "vodafone_cash"].includes(order.payment_method))
     return null;
   const editable =
@@ -152,28 +173,7 @@ export function ManualPayment({
         <bdi>{order.reference}</bdi>
         <CopyValue value={order.reference} />
       </div>
-      {editable && (
-        <ol className="payment-steps">
-          <li>
-            {t(
-              "Copy the number and transfer the exact amount using your payment app.",
-              "انسخ الرقم وحوّل المبلغ المطلوب باستخدام تطبيق الدفع.",
-            )}
-          </li>
-          <li>
-            {t(
-              "Upload the payment screenshot, then submit your transfer details below. Never share a PIN, password or OTP.",
-              "ارفع صورة تأكيد الدفع ثم أرسل بيانات التحويل أدناه. لا تشارك رقمًا سريًا أو كلمة مرور أو رمز تحقق.",
-            )}
-          </li>
-          <li>
-            {t(
-              "Open WhatsApp, manually attach your screenshot and send the prepared message. Opening WhatsApp alone does not send anything or confirm payment.",
-              "افتح واتساب وأرفق صورة التحويل بنفسك وأرسل الرسالة المُعدّة. فتح واتساب وحده لا يرسل شيئًا ولا يؤكد الدفع.",
-            )}
-          </li>
-        </ol>
-      )}
+      {editable && <ManualPaymentSteps />}
       {order.rejection_reason && (
         <p className="notice error">
           {t("Review result: ", "نتيجة المراجعة: ")}
@@ -333,8 +333,8 @@ export function ManualPayment({
                 rel="noreferrer"
               >
                 {t(
-                  "Send Payment Confirmation via WhatsApp",
-                  "إرسال تأكيد التحويل عبر واتساب",
+                  "Send Payment Proof via WhatsApp",
+                  "إرسال إثبات التحويل عبر واتساب",
                 )}
               </a>
             ) : (

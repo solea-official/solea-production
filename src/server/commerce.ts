@@ -1,3 +1,4 @@
+import { bundleDiscount } from "../lib/promotions";
 import { z } from "zod";
 import { pool, transaction, DB, audit } from "./db";
 import { checkoutSchema } from "./validation";
@@ -37,13 +38,17 @@ export async function getCart(s: Session) {
     [s.id],
   );
   const r = await pool.query(
-    `SELECT p.id,p.slug,p.name_en,p.name_ar,p.volume,p.price,p.status,i.stock,ci.quantity,(SELECT url FROM product_images WHERE product_id=p.id ORDER BY position LIMIT 1) image FROM cart_items ci JOIN products p ON p.id=ci.product_id JOIN inventory i ON i.product_id=p.id WHERE ci.cart_id=$1 ORDER BY p.id`,
+    `SELECT p.id,p.sku,p.slug,p.name_en,p.name_ar,p.volume,p.price,p.status,i.stock,ci.quantity,(SELECT url FROM product_images WHERE product_id=p.id ORDER BY position LIMIT 1) image FROM cart_items ci JOIN products p ON p.id=ci.product_id JOIN inventory i ON i.product_id=p.id WHERE ci.cart_id=$1 ORDER BY p.id`,
     [c.rows[0].id],
   );
+  const subtotal = r.rows.reduce((n, x) => n + (x.price || 0) * x.quantity, 0);
+  const discount = bundleDiscount(r.rows);
   return {
     id: c.rows[0].id,
     items: r.rows,
-    subtotal: r.rows.reduce((n, x) => n + (x.price || 0) * x.quantity, 0),
+    subtotal,
+    discount,
+    total: subtotal - discount,
     valid:
       r.rows.length > 0 &&
       r.rows.every(
@@ -271,7 +276,7 @@ export async function checkout(
       "ORDER_LIMIT",
     );
     let couponId = null,
-      discount = 0;
+      discount = bundleDiscount(items);
     if (data.coupon) {
       const c = (
         await db.query("SELECT * FROM coupons WHERE code=$1 FOR UPDATE", [
@@ -288,9 +293,13 @@ export async function checkout(
         400,
         "INVALID_COUPON",
       );
-      discount = discountAmount(subtotal, c.type, c.value);
-      couponId = c.id;
-      await db.query("UPDATE coupons SET used=used+1 WHERE id=$1", [c.id]);
+      const couponDiscount = discountAmount(subtotal, c.type, c.value);
+      // Apply the better promotion once; do not consume an unused coupon.
+      if (couponDiscount >= discount) {
+        discount = couponDiscount;
+        couponId = c.id;
+        await db.query("UPDATE coupons SET used=used+1 WHERE id=$1", [c.id]);
+      }
     }
     const fee = shippingFee(
       settings,
@@ -620,7 +629,7 @@ export async function quote(s: Session, governorate: string, code: string) {
   requireCondition(cart.valid, 409, "CART_UNAVAILABLE");
   const settings = (await pool.query("SELECT * FROM store_settings WHERE id=1"))
     .rows[0];
-  let discount = 0;
+  let discount = cart.discount;
   if (code) {
     const c = (
       await pool.query("SELECT * FROM coupons WHERE code=$1", [
@@ -637,7 +646,10 @@ export async function quote(s: Session, governorate: string, code: string) {
       400,
       "INVALID_COUPON",
     );
-    discount = discountAmount(cart.subtotal, c.type, c.value);
+    discount = Math.max(
+      discount,
+      discountAmount(cart.subtotal, c.type, c.value),
+    );
   }
   const fee = shippingFee(settings, governorate, cart.subtotal - discount);
   return {

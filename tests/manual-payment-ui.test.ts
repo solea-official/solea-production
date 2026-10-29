@@ -129,6 +129,9 @@ for (const method of ["instapay", "vodafone_cash"])
       await expect(
         page.getByRole("heading", { name: "Your provisional order" }),
       ).toBeVisible();
+      await expect(page.getByRole("heading", {name:"Complete Your Payment"})).toBeVisible();
+      await expect(page.locator(".manual-payment-steps li")).toHaveCount(6);
+      await expect(page.locator(".manual-payment-steps")).toContainText("Your payment will be reviewed before your order is confirmed.");
       await page
         .getByRole("button", { name: "Copy Number", exact: true })
         .click();
@@ -164,7 +167,7 @@ for (const method of ["instapay", "vodafone_cash"])
         .click();
       await expect(
         page.getByRole("link", {
-          name: "Send Payment Confirmation via WhatsApp",
+          name: "Send Payment Proof via WhatsApp",
         }),
       ).toHaveAttribute("href", /^https:\/\/wa.me\/201039010190\?text=/);
       assert.deepEqual(submissions, [
@@ -200,6 +203,9 @@ for (const method of ["instapay", "vodafone_cash"])
       await expect(
         page.getByRole("button", { name: "نسخ الرقم", exact: true }),
       ).toBeVisible();
+      await expect(page.getByRole("heading", {name:"إتمام الدفع"})).toBeVisible();
+      await expect(page.locator(".manual-payment-steps li")).toHaveCount(6);
+      await expect(page.getByRole("link", {name:"إرسال إثبات التحويل عبر واتساب"})).toHaveAttribute("href", /^https:\/\/wa.me\/201039010190\?text=/);
       assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
       assert.equal(
         await page.evaluate(

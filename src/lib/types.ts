@@ -67,4 +67,10 @@ export type CartItem = {
   status: string;
   image: string;
 };
-export type Cart = { items: CartItem[]; subtotal: number; valid: boolean };
+export type Cart = {
+  items: CartItem[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  valid: boolean;
+};

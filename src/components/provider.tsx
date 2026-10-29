@@ -163,14 +163,14 @@ export function Shell({
               </p>
             </div>
             <div>
-              <h3>{t("Company", "الشركة")}</h3>
+              <h4>{t("Company", "الشركة")}</h4>
               <Link href="/about">{t("Our Story", "حكايتنا")}</Link>
               <Link href="/products">{t("Shop", "المنتجات")}</Link>
-              <h3 className="footer-subtitle">{t("Social media", "التواصل الاجتماعي")}</h3>
+              <h4 className="footer-subtitle">{t("Social Media", "التواصل الاجتماعي")}</h4>
               <SocialLinks />
             </div>
             <div>
-              <h3>{t("Customer care", "خدمة العملاء")}</h3>
+              <h4>{t("Customer Care", "خدمة العملاء")}</h4>
               {[
                 ["/track-order", "Track your order", "تتبّعي طلبك"],
                 ["/shipping-policy", "Shipping", "الشحن"],
@@ -183,7 +183,7 @@ export function Shell({
               ))}
             </div>
             <div>
-              <h3>{t("Contact", "تواصل معنا")}</h3>
+              <h4>{t("Contact", "تواصل معنا")}</h4>
               <a href={"tel:+20" + data.settings.phone.slice(1)} dir="ltr">
                 {data.settings.phone}
               </a>
@@ -195,7 +195,7 @@ export function Shell({
               <p>{t("Delivery configured at checkout", "يُحدّد التوصيل عند إتمام الطلب")}</p>
             </div>
             <div>
-              <h3>{t("Legal", "قانوني")}</h3>
+              <h4>{t("Legal", "قانوني")}</h4>
               {[
                 ["/privacy", "Privacy", "الخصوصية"],
                 ["/terms", "Terms", "الشروط والأحكام"],
