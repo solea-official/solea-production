@@ -146,6 +146,7 @@ export async function changeCustomerPassword(
       [account.id, next.id],
     );
     await db.query("UPDATE sessions SET expires_at=now() WHERE id=$1", [s.id]);
+    await db.query("UPDATE customer_password_resets SET used_at=now() WHERE account_id=$1 AND used_at IS NULL", [account.id]);
     await audit(db, null, "customer.password-changed", "customer_accounts", account.id);
   });
   await moveCart(s.id, next.id);
@@ -180,6 +181,7 @@ export async function resetCustomerPassword(raw: string, password: string) {
       )
     ).rows[0];
     requireCondition(reset, 400, "INVALID_RESET");
+    requireCondition((await db.query("SELECT id FROM customer_accounts WHERE id=$1 AND active=true", [reset.account_id])).rowCount, 400, "INVALID_RESET");
     await db.query(
       "UPDATE customer_accounts SET password_hash=$1,updated_at=now() WHERE id=$2",
       [await bcrypt.hash(password, 14), reset.account_id],

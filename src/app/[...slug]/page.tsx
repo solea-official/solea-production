@@ -109,10 +109,10 @@ export default async function Page({
       </Suspense>
     );
   if (path === "track-order") return <Tracking />;
-  if (path === "account/login") return <AccountAuth mode="login" />;
-  if (path === "account/register") return <AccountAuth mode="register" />;
-  if (path === "account/forgot") return <AccountAuth mode="forgot" />;
-  if (path === "account/reset") return <Suspense><AccountAuth mode="reset" /></Suspense>;
+  if (path === "account/login") return <AccountAuth key="login" mode="login" />;
+  if (path === "account/register") return <AccountAuth key="register" mode="register" />;
+  if (path === "account/forgot") return <AccountAuth key="forgot" mode="forgot" />;
+  if (path === "account/reset") return <Suspense><AccountAuth key="reset" mode="reset" /></Suspense>;
   if (path === "account") return <AccountCenter section="dashboard" />;
   if (path === "account/orders") return <AccountCenter section="orders" />;
   if (accountOrder) return <AccountCenter section="order" orderId={slug[2]} />;

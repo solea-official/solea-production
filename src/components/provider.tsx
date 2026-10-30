@@ -320,6 +320,8 @@ export function ErrorMessage({ code }: { code: string }) {
       "This change is not available for the current order state.",
       "هذا التغيير غير متاح لحالة الطلب الحالية.",
     ],
+    EMAIL_UNAVAILABLE: ["Password recovery is temporarily unavailable. Please try again later or contact SOLÉA support.", "استعادة كلمة المرور غير متاحة مؤقتًا. يُرجى المحاولة لاحقًا أو التواصل مع دعم SOLÉA."],
+    INVALID_RESET: ["This reset link is invalid or expired. Please request a new one.", "رابط الاستعادة غير صالح أو انتهت صلاحيته. يُرجى طلب رابط جديد."],
     INTEGRATION_NOT_CONFIGURED: [
       "This service is not available yet.",
       "هذه الخدمة غير متاحة بعد.",

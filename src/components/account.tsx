@@ -7,6 +7,8 @@ import { useStore, ErrorMessage } from "./provider";
 import { PageTitle } from "./storefront";
 import { PaymentInstructions, Status, type OrderView } from "./checkout";
 
+import { NewPasswordFields, recoveryFeedback, useRecoveryToken } from "./password-recovery";
+
 type Account = {
   id: string;
   name: string;
@@ -58,7 +60,8 @@ type OrderDetail = OrderView & {
 };
 
 export function AccountAuth({ mode }: { mode: "login" | "register" | "forgot" | "reset" }) {
-  const { t } = useStore();
+  const { t, locale } = useStore();
+  const { credential, clearCredential } = useRecoveryToken(mode === "reset", "token");
   const router = useRouter(),
     query = useSearchParams();
   const [error, setError] = useState(""),
@@ -78,9 +81,11 @@ export function AccountAuth({ mode }: { mode: "login" | "register" | "forgot" | 
           className="account-form panel"
           onSubmit={async (event) => {
             event.preventDefault();
+            if (busy || done) return;
+            const form = event.currentTarget;
             setBusy(true);
             setError("");
-            const fields = Object.fromEntries(new FormData(event.currentTarget));
+            const fields = Object.fromEntries(new FormData(form));
             try {
               if (mode === "register") {
                 if (fields.password !== fields.confirmPassword) throw new Error("PASSWORD_MISMATCH");
@@ -98,15 +103,17 @@ export function AccountAuth({ mode }: { mode: "login" | "register" | "forgot" | 
                 router.push("/account");
                 router.refresh();
               } else if (mode === "forgot") {
-                await api("account/reset-request", "POST", { email: fields.email });
+                await api("account/reset-request", "POST", { email: fields.email, locale });
                 setDone(true);
               } else {
                 if (fields.password !== fields.confirmPassword) throw new Error("PASSWORD_MISMATCH");
                 await api("account/reset", "POST", {
-                  token: query.get("token") || "",
+                  token: credential,
                   password: fields.password,
                 });
-                setDone(true);
+                clearCredential();
+                form.reset();
+                router.replace("/account/login?passwordReset=1");
               }
             } catch (error) {
               setError((error as Error).message);
@@ -122,16 +129,19 @@ export function AccountAuth({ mode }: { mode: "login" | "register" | "forgot" | 
           {mode === "register" && (
             <label>{t("Mobile", "رقم الموبايل")}<input name="mobile" type="tel" autoComplete="tel" pattern="01[0125][0-9]{8}" dir="ltr" required /></label>
           )}
-          {["login", "register", "reset"].includes(mode) && (
+          {["login", "register"].includes(mode) && (
             <label>{t(mode === "login" ? "Password" : "New password", mode === "login" ? "كلمة المرور" : "كلمة المرور الجديدة")}<input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={mode === "login" ? 1 : 12} maxLength={72} /></label>
           )}
-          {["register", "reset"].includes(mode) && (
+          {mode === "register" && (
             <label>{t("Confirm password", "تأكيد كلمة المرور")}<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={72} /></label>
           )}
-          <button className="button full" disabled={busy}>
+          {mode === "reset" && <NewPasswordFields />}
+          <button className="button full" disabled={busy || done || (mode === "reset" && !credential)}>
             {busy ? t("Please wait…", "يرجى الانتظار…") : t(mode === "login" ? "Sign in" : mode === "register" ? "Create account" : mode === "forgot" ? "Send reset instructions" : "Update password", mode === "login" ? "تسجيل الدخول" : mode === "register" ? "إنشاء الحساب" : mode === "forgot" ? "إرسال تعليمات الاستعادة" : "تحديث كلمة المرور")}
           </button>
-          {done && <p className="notice success">{t(mode === "forgot" ? "If the account is eligible and email is configured, reset instructions will be sent." : "Password updated. You can sign in now.", mode === "forgot" ? "إذا كان الحساب موجودًا والبريد مفعّلًا، فستصل تعليمات الاستعادة." : "تم تحديث كلمة المرور. يمكنكِ تسجيل الدخول الآن.")}</p>}
+          {done && <p className="notice success" role="status">{t(...recoveryFeedback)}</p>}
+          {mode === "login" && query.get("passwordReset") === "1" && <p className="notice success" role="status">{t("Password updated. You can sign in now.", "تم تحديث كلمة المرور. يمكنكِ تسجيل الدخول الآن.")}</p>}
+          {mode === "reset" && (!credential || error === "INVALID_RESET") && <p className="notice"><Link href="/account/forgot">{t("This link is invalid or expired. Request new reset instructions.", "هذا الرابط غير صالح أو انتهت صلاحيته. اطلبي تعليمات استعادة جديدة.")}</Link></p>}
           {error && <ErrorMessage code={error} />}
           <div className="account-switch">
             {mode === "login" ? <><Link href="/account/forgot">{t("Forgot password?", "نسيتِ كلمة المرور؟")}</Link><Link href="/account/register">{t("Create account", "إنشاء حساب")}</Link></> : <Link href="/account/login">{t("Back to sign in", "العودة لتسجيل الدخول")}</Link>}

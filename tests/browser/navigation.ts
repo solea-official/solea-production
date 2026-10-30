@@ -2,6 +2,10 @@ import { useState } from "react";
 let navigating = false;
 export function useRouter() {
   return {
+    replace: (url: string) => {
+      navigating = true;
+      window.location.replace(url);
+    },
     push: (url: string) => {
       navigating = true;
       window.location.assign(url);

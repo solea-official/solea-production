@@ -18,3 +18,7 @@ For an existing deployment, use the coordinated migration-010 maintenance sequen
 ## Reporting and mandatory manual-payment review (migration 011)
 
 For the migration-010 production baseline, follow `REPORTING_MANUAL_PAYMENTS.md`. Apply additive migration 011 and refreshed runtime grants before promoting this release. Never run `db:seed` against existing production data. The reporting reset is a separate, backup-gated, audited action; extraction, migration and deployment do not reset statistics. Manual methods additionally require the new per-method `*_RECIPIENT_VERIFIED` flags after real receiving-account verification. Preserve existing Paymob credentials and daily Vercel Cron.
+
+## Password recovery email
+
+See `PASSWORD_RECOVERY_SETUP.md` for production SMTP, sender DNS verification, serverless delivery jobs and mailbox acceptance tests. Accounts use the existing PostgreSQL authentication tables, not Supabase Auth. No new migration is needed; do not migrate identities or replace Supabase Auth settings for unrelated applications. SMTP credentials belong only in the trusted server environment.

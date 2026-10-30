@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AppError, requireCondition, config } from "./config";
+import { smtpEmail } from "./email";
 export async function adapter(
   service: "PAYMENT" | "BOSTA" | "EMAIL",
   path: string,
@@ -70,7 +71,9 @@ export async function sendEmail(
   subject: string,
   body: string,
   key: string,
+  html?: string,
 ) {
+  if (process.env.EMAIL_PROVIDER === "smtp") return smtpEmail(to, subject, body, key, html);
   requireCondition(process.env.EMAIL_FROM, 503, "INTEGRATION_NOT_CONFIGURED");
   return adapter(
     "EMAIL",
@@ -80,6 +83,7 @@ export async function sendEmail(
       to,
       subject,
       text: body,
+      ...(html ? { html } : {}),
       brand: "SOLÉA",
       logoUrl: config().APP_URL + "/media/logo.png",
     },

@@ -8,13 +8,19 @@ import { useStore, ErrorMessage } from "./provider";
 import { Brand } from "./brand";
 import { Status } from "./checkout";
 import { ReportingControls } from "./reporting";
+import {
+  NewPasswordFields,
+  recoveryFeedback,
+  useRecoveryToken,
+} from "./password-recovery";
 type Row = Record<string, unknown>;
 const str = (v: unknown) => (v == null ? "" : String(v));
 export function Login() {
-  const { t } = useStore();
+  const { t, locale } = useStore();
   const router = useRouter(),
     query = useSearchParams();
-  const reset = query.get("reset");
+  const reset = !!query.get("reset");
+  const { credential, clearCredential } = useRecoveryToken(reset, "reset");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [forgot, setForgot] = useState(false),
@@ -34,18 +40,28 @@ export function Login() {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
+            if (busy || done) return;
+            const form = e.currentTarget;
             setBusy(true);
             setError("");
-            const f = Object.fromEntries(new FormData(e.currentTarget));
+            const f = Object.fromEntries(new FormData(form));
             try {
               if (reset) {
+                if (f.password !== f.confirmPassword)
+                  throw new Error("PASSWORD_MISMATCH");
                 await api("auth/reset", "POST", {
-                  token: reset,
+                  token: credential,
                   password: f.password,
                 });
-                setDone(true);
+                clearCredential();
+                form.reset();
+                router.replace("/ops-portal?passwordReset=1");
+                router.refresh();
               } else if (forgot) {
-                await api("auth/reset-request", "POST", f);
+                await api("auth/reset-request", "POST", {
+                  email: f.email,
+                  locale,
+                });
                 setDone(true);
               } else {
                 await api("auth/login", "POST", f);
@@ -72,58 +88,73 @@ export function Login() {
               />
             </label>
           )}
-          {(!forgot || reset) && (
+          {!forgot && !reset && (
             <label>
               {t("Password", "كلمة المرور")}
               <input
                 type="password"
                 name="password"
-                autoComplete={reset ? "new-password" : "current-password"}
+                autoComplete="current-password"
                 required
-                minLength={reset ? 12 : 1}
+                minLength={1}
                 maxLength={72}
                 dir="ltr"
               />
             </label>
           )}
-          {reset && (
-            <p className="small">
-              {t(
-                "At least 12 characters, including uppercase, lowercase and a number.",
-                "12 حرفًا على الأقل، تشمل حرفًا إنجليزيًا كبيرًا وصغيرًا ورقمًا.",
-              )}
-            </p>
-          )}
-          <button className="button full" disabled={busy}>
-            {t(
-              reset ? "Update password" : forgot ? "Request reset" : "Sign in",
-              reset
-                ? "تحديث كلمة المرور"
-                : forgot
-                  ? "طلب إعادة التعيين"
-                  : "تسجيل الدخول",
-            )}
+          {reset && <NewPasswordFields />}
+          <button
+            className="button full"
+            disabled={busy || done || (reset && !credential)}
+          >
+            {busy
+              ? t("Please wait…", "يرجى الانتظار…")
+              : t(
+                  reset
+                    ? "Update password"
+                    : forgot
+                      ? "Request reset"
+                      : "Sign in",
+                  reset
+                    ? "تحديث كلمة المرور"
+                    : forgot
+                      ? "طلب إعادة التعيين"
+                      : "تسجيل الدخول",
+                )}
           </button>
         </form>
         {done && (
-          <p className="notice">
-            {reset
-              ? t(
-                  "Password changed. Sign in again.",
-                  "تم تغيير كلمة المرور. سجّلي الدخول مجددًا.",
-                )
-              : t(
-                  "If the account is eligible and email is configured, reset instructions will be sent.",
-                  "إذا كان الحساب مؤهلًا وخدمة البريد مفعّلة، ستُرسل تعليمات إعادة التعيين.",
-                )}
+          <p className="notice" role="status">
+            {t(...recoveryFeedback)}
+          </p>
+        )}
+        {!reset && query.get("passwordReset") === "1" && (
+          <p className="notice success" role="status">
+            {t(
+              "Password changed. Sign in again.",
+              "تم تغيير كلمة المرور. سجّلي الدخول مجددًا.",
+            )}
           </p>
         )}
         {error && <ErrorMessage code={error} />}
+        {reset && (!credential || error === "INVALID_RESET") && (
+          <p className="notice">
+            {t(
+              "This link is invalid or expired. Request new reset instructions.",
+              "هذا الرابط غير صالح أو انتهت صلاحيته. اطلبي تعليمات استعادة جديدة.",
+            )}
+          </p>
+        )}
         <button
           className="text-link"
           onClick={() => {
-            setForgot(!forgot);
+            if (reset) {
+              clearCredential();
+              router.replace("/ops-portal");
+              setForgot(true);
+            } else setForgot(!forgot);
             setDone(false);
+            setError("");
           }}
         >
           {t(
@@ -135,6 +166,7 @@ export function Login() {
     </section>
   );
 }
+
 const sections = [
   ["dashboard", "Overview", "نظرة عامة", ""],
   ["products", "Products", "المنتجات", "products"],
@@ -162,7 +194,7 @@ export function Admin({
   const [data, setData] = useState<unknown>(null),
     [error, setError] = useState(""),
     [search, setSearch] = useState(""),
-    [paymentReview,setPaymentReview]=useState("all");
+    [paymentReview, setPaymentReview] = useState("all");
   const load = useCallback(() => {
     setError("");
     if (section === "products" && id === "new") {
@@ -174,12 +206,14 @@ export function Admin({
         section +
         (id ? "/" + id : "") +
         (section === "orders" || section === "customers"
-          ? "?q=" + encodeURIComponent(search) + (section === "orders" ? "&paymentReview="+paymentReview : "")
+          ? "?q=" +
+            encodeURIComponent(search) +
+            (section === "orders" ? "&paymentReview=" + paymentReview : "")
           : ""),
     )
       .then(setData)
       .catch((e) => setError(e.message));
-  }, [section, id, search,paymentReview]);
+  }, [section, id, search, paymentReview]);
   useEffect(load, [load]);
   async function mutate(url: string, method: string, body?: unknown) {
     try {
@@ -241,7 +275,13 @@ export function Admin({
           <p role="status">{t("Loading…", "جارٍ التحميل…")}</p>
         )}
         {section === "dashboard" && data !== null && (
-          <> <Dashboard data={data as Row} />{user.permissions.includes("users")&&<ReportingControls onChanged={load}/>}</>
+          <>
+            {" "}
+            <Dashboard data={data as Row} />
+            {user.permissions.includes("users") && (
+              <ReportingControls onChanged={load} />
+            )}
+          </>
         )}
         {section === "jobs" && (
           <>
@@ -311,7 +351,23 @@ export function Admin({
             />
           </label>
         )}
-        {section === "orders" && !id && <label>{t("Payment review","مراجعة الدفع")}<select value={paymentReview} onChange={e=>setPaymentReview(e.target.value)}><option value="all">{t("All orders","كل الطلبات")}</option><option value="pending">{t("Manual payments awaiting review","مدفوعات يدوية بانتظار المراجعة")}</option></select></label>}
+        {section === "orders" && !id && (
+          <label>
+            {t("Payment review", "مراجعة الدفع")}
+            <select
+              value={paymentReview}
+              onChange={(e) => setPaymentReview(e.target.value)}
+            >
+              <option value="all">{t("All orders", "كل الطلبات")}</option>
+              <option value="pending">
+                {t(
+                  "Manual payments awaiting review",
+                  "مدفوعات يدوية بانتظار المراجعة",
+                )}
+              </option>
+            </select>
+          </label>
+        )}
         {section === "orders" && !id && (
           <DataTable
             rows={rows}
@@ -364,9 +420,11 @@ export function Admin({
           <div className="panel account-form">
             <h2>{t("Account security", "أمان الحساب")}</h2>
             <p className="notice success">
-              {t("Use a strong, unique password. Sign out when you finish using this device.", "استخدم كلمة مرور قوية وفريدة، وسجّل الخروج عند الانتهاء من استخدام هذا الجهاز.")}
+              {t(
+                "Use a strong, unique password. Sign out when you finish using this device.",
+                "استخدم كلمة مرور قوية وفريدة، وسجّل الخروج عند الانتهاء من استخدام هذا الجهاز.",
+              )}
             </p>
-
           </div>
         )}
         {section === "content" && data !== null && (

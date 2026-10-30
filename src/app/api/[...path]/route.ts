@@ -1,11 +1,11 @@
 import { saveProof, submitTransfer, whatsappLink, expireIncompleteManualPayments } from "@/server/manual-submissions";
 import { boundedBody } from "@/server/http";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z, ZodError } from "zod";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { pool, transaction, audit } from "@/server/db";
-import { AppError, requireCondition, config } from "@/server/config";
+import { AppError, requireCondition } from "@/server/config";
 import {
   session,
   newSession,
@@ -15,7 +15,6 @@ import {
   rate,
   login,
   hash,
-  token,
   admin,
 } from "@/server/security";
 import { products, publicSettings, content } from "@/server/catalog";
@@ -39,14 +38,13 @@ import {
 import { adminApi } from "@/server/admin-api";
 import { webhook } from "@/server/webhooks";
 import { paymobWebhook } from "@/server/paymob-webhook";
-import { sendEmail } from "@/server/integrations";
+import { queueRecovery, deliverRecovery } from "@/server/password-recovery";
 import {
   downloadPaymentProof,
   signedPaymentProof,
 } from "@/server/storage";
 import {
   changeCustomerPassword,
-  createCustomerReset,
   loginCustomer,
   logoutCustomer,
   registerCustomer,
@@ -110,6 +108,7 @@ async function handler(
         401,
         "INVALID_SIGNATURE",
       );
+      if (process.env.NODE_ENV !== "test") after(() => deliverRecovery());
       return result({ ok: true, expired: await expirePendingPayments(), manualExpired:await expireIncompleteManualPayments() });
     }
     if (endpoint === "session" && method === "GET") {
@@ -157,40 +156,10 @@ async function handler(
       const s = await session(req);
       csrf(req, s);
       await rate(req, "reset", 5, 3600);
-      const d = z
-        .object({ email })
-        .strict()
-        .parse(await body());
-      const u = (
-        await pool.query(
-          "SELECT id FROM admin_users WHERE email=$1 AND active=true",
-          [d.email],
-        )
-      ).rows[0];
-      if (
-        u &&
-        process.env.EMAIL_ADAPTER_URL &&
-        process.env.EMAIL_API_KEY &&
-        process.env.EMAIL_FROM
-      ) {
-        const value = token();
-        await pool.query(
-          "INSERT INTO password_resets(token_hash,admin_id,expires_at) VALUES($1,$2,now()+interval '30 minutes')",
-          [hash(value), u.id],
-        );
-        try {
-          await sendEmail(
-            d.email,
-            "SOLÉA — Password reset",
-            config().APP_URL + "/ops-portal?reset=" + value,
-            "reset:" + hash(value),
-          );
-        } catch {
-          await pool.query("DELETE FROM password_resets WHERE token_hash=$1", [
-            hash(value),
-          ]);
-        }
-      }
+      const data = z.object({ email, locale: z.enum(["en", "ar"]).default("en") }).strict().parse(await body());
+      await rate(req, "reset-identity", 5, 3600, data.email, true);
+      const jobId = await queueRecovery("admin", data.email, data.locale);
+      if (process.env.NODE_ENV !== "test") after(() => deliverRecovery(jobId));
       return result({ ok: true });
     }
     if (endpoint === "auth/reset" && method === "POST") {
@@ -209,6 +178,7 @@ async function handler(
           )
         ).rows[0];
         requireCondition(r, 400, "INVALID_RESET");
+        requireCondition((await db.query("SELECT id FROM admin_users WHERE id=$1 AND active=true", [r.admin_id])).rowCount, 400, "INVALID_RESET");
         await db.query("UPDATE admin_users SET password_hash=$1 WHERE id=$2", [
           await bcrypt.hash(d.password, 14),
           r.admin_id,
@@ -229,7 +199,10 @@ async function handler(
           r.admin_id,
         );
       });
-      return result({ ok: true });
+      const fresh = await newSession();
+      const response = result({ ok: true, csrf: sign(fresh.raw) });
+      setSession(response, fresh);
+      return response;
     }
     if (parts[0] === "auth") throw new AppError(404, "NOT_FOUND");
     if (endpoint === "account/register" && method === "POST") {
@@ -285,33 +258,10 @@ async function handler(
       const s = await session(req);
       csrf(req, s);
       await rate(req, "customer-reset", 5, 3600);
-      const data = z
-        .object({ email })
-        .strict()
-        .parse(await body());
-      if (
-        process.env.EMAIL_ENABLED === "true" &&
-        process.env.EMAIL_ADAPTER_URL &&
-        process.env.EMAIL_API_KEY &&
-        process.env.EMAIL_FROM
-      ) {
-        const reset = await createCustomerReset(data.email);
-        if (reset) {
-          try {
-            await sendEmail(
-              reset.account.email,
-              "SOLÉA — Password reset",
-              `${config().APP_URL}/account/reset?token=${reset.raw}`,
-              `customer-reset:${hash(reset.raw)}`,
-            );
-          } catch {
-            await pool.query(
-              "DELETE FROM customer_password_resets WHERE token_hash=$1",
-              [hash(reset.raw)],
-            );
-          }
-        }
-      }
+      const data = z.object({ email, locale: z.enum(["en", "ar"]).default("en") }).strict().parse(await body());
+      await rate(req, "customer-reset-identity", 5, 3600, data.email, true);
+      const jobId = await queueRecovery("customer", data.email, data.locale);
+      if (process.env.NODE_ENV !== "test") after(() => deliverRecovery(jobId));
       return result({ ok: true });
     }
     if (endpoint === "account/reset" && method === "POST") {
@@ -325,7 +275,11 @@ async function handler(
         })
         .strict()
         .parse(await body());
-      return result(await resetCustomerPassword(data.token, data.password));
+      await resetCustomerPassword(data.token, data.password);
+      const fresh = await newSession();
+      const response = result({ ok: true, csrf: sign(fresh.raw) });
+      setSession(response, fresh);
+      return response;
     }
     if (endpoint === "webhooks/paymob" && method === "POST") {
       await rate(req, "paymob-webhook", 300, 60);
@@ -369,7 +323,9 @@ async function handler(
     }
     if (parts[0] === "admin") {
       await rate(req, "admin", 300, 60);
-      return result(await adminApi(req, parts, body));
+      const data = await adminApi(req, parts, body);
+      if (parts[1] === "jobs" && parts[3] === "retry" && method === "POST" && process.env.NODE_ENV !== "test") after(() => deliverRecovery(parts[2]));
+      return result(data);
     }
     if (parts[0] === "account") {
       const s = await session(req);

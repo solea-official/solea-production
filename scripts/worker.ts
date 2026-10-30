@@ -3,6 +3,7 @@ import { expirePendingPayments } from "../src/server/commerce";
 import { adapter, sendEmail } from "../src/server/integrations";
 import { sign } from "../src/server/security";
 import { z } from "zod";
+import { deliverRecovery } from "../src/server/password-recovery";
 let running = true;
 process.on("SIGTERM", () => {
   running = false;
@@ -12,10 +13,11 @@ process.on("SIGINT", () => {
 });
 while (running) {
   await expirePendingPayments();
+  await deliverRecovery();
   const job = await transaction(async (db) => {
     const r = (
       await db.query(
-        "SELECT * FROM outbox WHERE (status IN ('pending','failed') AND attempts<8 AND next_at<=now()) OR (status='working' AND next_at<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
+        "SELECT * FROM outbox WHERE kind<>'password-reset-email' AND ((status IN ('pending','failed') AND attempts<8 AND next_at<=now()) OR (status='working' AND next_at<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
       )
     ).rows[0];
     if (r)
